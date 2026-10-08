@@ -1,0 +1,13 @@
+Attribution
+===========
+
+This package originates in the deepseek-harness repository
+(https://github.com/deepseek-ai/deepseek-harness), distributed under the MIT
+License, Copyright (c) 2026 DeepSeek.
+
+The source here is that package — the quota monitor extension, its adapters,
+tests, and documentation — together with the changes recorded in this
+repository's commit history. It is published as a standalone plugin so a DSH
+profile can install it directly, and it is not an official DeepSeek release.
+
+The MIT License in LICENSE covers this repository.

@@ -1,0 +1,60 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
+  },
+  "files": [
+    "src/index.ts",
+    "src/config.ts",
+    "src/export.ts",
+    "src/http.ts",
+    "src/identity.ts",
+    "src/parse.ts",
+    "src/pricing.ts",
+    "src/types.ts",
+    "src/usage-domain.ts",
+    "src/usage-fold.ts",
+    "src/usage-store.ts",
+    "src/adapters/index.ts",
+    "src/adapters/balance.ts",
+    "src/adapters/contract.ts",
+    "src/adapters/declarative.ts",
+    "src/adapters/sub2api.ts",
+    "src/adapters/stepcode.ts",
+    "src/adapters/subscription.ts"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../settings/settings"
+    },
+    {
+      "path": "../../storage/storage-domain"
+    },
+    {
+      "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../util/brand"
+    }
+  ]
+}

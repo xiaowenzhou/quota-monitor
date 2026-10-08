@@ -1,0 +1,14 @@
+# Installed into a DSH profile, never committed.
+node_modules/
+pnpm-lock.yaml
+
+# Build residue that is not part of the published package.
+*.tsbuildinfo
+lib/**/*.map
+
+# Editor and OS noise.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log

@@ -1,0 +1,19 @@
+# Mounts the quota monitor into a profile that does not ship this row itself:
+# the Host half publishes `ctx.quotaMonitor`, and the browser half (declared
+# through this package's `dsh.client`) adds the sidebar rail entry plus its
+# usage panel.
+- insert:
+    - id: quota-monitor
+      name: '@deepseek-ai/dsh-extension-quota-monitor'
+      config:
+        refresh:
+          enabled: true
+          activeMs: 60000
+          backgroundMs: 300000
+        thresholds:
+          warningRemaining: 10
+          criticalRemaining: 2
+          warningPercentUsed: 80
+          criticalPercentUsed: 95
+        detection:
+          enabled: true
