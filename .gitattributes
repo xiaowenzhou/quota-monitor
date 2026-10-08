@@ -1,0 +1,8 @@
+# Keep the published package byte-identical on every platform: Git stores LF and
+# checks it out as LF, so a Windows clone and a Linux install receive the same
+# sources and the same built artifacts.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.tgz binary
