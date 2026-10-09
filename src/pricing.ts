@@ -80,14 +80,31 @@ export function normalizeModel(model: string): string {
   return model.toLowerCase().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]+/g, '')
 }
 
-/** The normalized counterpart of {@link modelMatches}. */
+/**
+ * The id after its last `/`, when a route prefixes the model name.
+ *
+ * `cline-pass/deepseek-v4.1-flash` names the model a vendor catalog lists as
+ * `deepseek-v4.1-flash`, so the leaf is the second spelling worth comparing.
+ * @param model - the model id as a request reported it.
+ * @returns the leaf id, or the id itself when it carries no prefix.
+ */
+function modelLeaf(model: string): string {
+  const cut = model.lastIndexOf('/')
+  return cut === -1 ? model : model.slice(cut + 1)
+}
+
+/** The normalized counterpart of {@link modelMatches}, also trying a prefixed id's leaf. */
 function modelMatchesNormalized(pattern: string | undefined, model: string): boolean {
   if (pattern === undefined) return true
-  const subject = normalizeModel(model)
-  if (subject === '') return false
-  if (!pattern.endsWith('*')) return normalizeModel(pattern) === subject
+  const subjects = [...new Set([normalizeModel(model), normalizeModel(modelLeaf(model))])]
+    .filter(subject => subject !== '')
+  if (subjects.length === 0) return false
+  if (!pattern.endsWith('*')) {
+    const wanted = normalizeModel(pattern)
+    return wanted !== '' && subjects.includes(wanted)
+  }
   const prefix = normalizeModel(pattern.slice(0, -1))
-  return prefix !== '' && subject.startsWith(prefix)
+  return prefix !== '' && subjects.some(subject => subject.startsWith(prefix))
 }
 
 /**

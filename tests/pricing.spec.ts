@@ -68,6 +68,18 @@ describe('priceFor', () => {
     expect(priceFor(fuzzy, 'pro', 'gpt5.6 luna (go)', '2026-03-15')?.inputPerMillion).toBe(1)
   })
 
+  it('prices a route-prefixed model by its leaf when the deployment opted in', () => {
+    const rules: QuotaPriceTable = {
+      currency: 'USD',
+      fuzzyMatch: true,
+      rules: [{ model: 'deepseek-v4.1-flash', inputPerMillion: 2, outputPerMillion: 4 }],
+    }
+    expect(priceFor(rules, 'cline-pass', 'cline-pass/deepseek-v4.1-flash', '2026-03-15')?.inputPerMillion).toBe(2)
+
+    const exact: QuotaPriceTable = { ...rules, fuzzyMatch: false }
+    expect(priceFor(exact, 'cline-pass', 'cline-pass/deepseek-v4.1-flash', '2026-03-15')).toBeUndefined()
+  })
+
   it('keeps an exact match ahead of a normalized one', () => {
     const rules: QuotaPriceTable = {
       currency: 'USD',
