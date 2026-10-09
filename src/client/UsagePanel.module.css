@@ -692,14 +692,54 @@
   gap: 10px;
 }
 
+.providerTools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.providerToggle {
+  padding: 4px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.providerToggle:hover {
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-border-l1);
+}
+
 .providerRow {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: 100%;
   padding: 12px 14px;
   border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 14px;
   background: var(--dsw-alias-bg-layer-1);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.providerRow:hover {
+  border-color: var(--dsw-alias-border-l1);
+}
+
+/* The route the panel's statistics describe: one accent border, no fill change,
+   so the row still reads as a figure rather than as a pressed control. */
+.providerRowActive {
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-state-business-primary);
 }
 
 .providerHead {

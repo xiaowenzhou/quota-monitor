@@ -59,14 +59,20 @@ export class QuotaUsageStore {
     this.report = emptyUsageReport(now(), false)
   }
 
-  /** Build the report from the current folds. */
-  private build(foldedAt: number): QuotaUsageReport {
+  /**
+   * Build the report from the current folds.
+   * @param foldedAt - epoch ms the fold last completed.
+   * @param provider - report this route alone; absent reports every route.
+   * @returns the assembled report.
+   */
+  private build(foldedAt: number, provider?: string): QuotaUsageReport {
     return buildUsageReport(this.folds, {
       now: this.now(),
       foldedAt,
       folding: false,
       ...this.derive.prices === undefined ? {} : { prices: this.derive.prices },
       ...this.derive.budgets === undefined ? {} : { budgets: this.derive.budgets },
+      ...provider === undefined ? {} : { provider },
     })
   }
 
@@ -107,9 +113,15 @@ export class QuotaUsageStore {
 
   /**
    * The most recent report; never blocks on a fold.
-   * @returns the last built report, with `folding` raised while a round runs.
+   *
+   * A filtered report is rebuilt from the in-memory folds on each read: it costs
+   * one pass over route-day rows, and keeping every reader's selection cached
+   * would outlive the selection that asked for it.
+   * @param provider - report this route alone; absent reports every route.
+   * @returns the report, with `folding` raised while a round runs.
    */
-  current(): QuotaUsageReport {
+  current(provider?: string): QuotaUsageReport {
+    if (provider !== undefined) return this.build(this.foldedAt, provider)
     return this.folding
       ? { ...this.report, folding: true }
       : this.report
@@ -117,13 +129,15 @@ export class QuotaUsageStore {
 
   /**
    * Run one fold round, or join the one already running.
+   * @param provider - report this route alone; absent reports every route.
    * @returns the report after the round completes.
    */
-  async refresh(): Promise<QuotaUsageReport> {
+  async refresh(provider?: string): Promise<QuotaUsageReport> {
     this.round ??= this.runRound().finally(() => {
       this.round = undefined
     })
-    return this.round
+    await this.round
+    return this.current(provider)
   }
 
   /** Read every session, fold what changed, and rebuild the report. */

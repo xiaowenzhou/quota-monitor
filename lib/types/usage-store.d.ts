@@ -40,7 +40,12 @@ export declare class QuotaUsageStore {
      * @param derive - prices and ceilings the report derives spend with.
      */
     constructor(ctx: Context, now: () => number, derive?: QuotaDeriveOptions);
-    /** Build the report from the current folds. */
+    /**
+     * Build the report from the current folds.
+     * @param foldedAt - epoch ms the fold last completed.
+     * @param provider - report this route alone; absent reports every route.
+     * @returns the assembled report.
+     */
     private build;
     /**
      * Replace the price table the report derives spend with.
@@ -62,14 +67,20 @@ export declare class QuotaUsageStore {
     open(): Promise<() => void>;
     /**
      * The most recent report; never blocks on a fold.
-     * @returns the last built report, with `folding` raised while a round runs.
+     *
+     * A filtered report is rebuilt from the in-memory folds on each read: it costs
+     * one pass over route-day rows, and keeping every reader's selection cached
+     * would outlive the selection that asked for it.
+     * @param provider - report this route alone; absent reports every route.
+     * @returns the report, with `folding` raised while a round runs.
      */
-    current(): QuotaUsageReport;
+    current(provider?: string): QuotaUsageReport;
     /**
      * Run one fold round, or join the one already running.
+     * @param provider - report this route alone; absent reports every route.
      * @returns the report after the round completes.
      */
-    refresh(): Promise<QuotaUsageReport>;
+    refresh(provider?: string): Promise<QuotaUsageReport>;
     /** Read every session, fold what changed, and rebuild the report. */
     private runRound;
     /** Fold one session, leaving its cached state untouched when the read fails. */

@@ -285,6 +285,39 @@ describe('buildUsageReport', () => {
     expect(busy?.cost).toEqual({ amount: 0, currency: 'USD', unpricedCalls: 5 })
   })
 
+  it('reports one provider alone when the caller narrows the report', () => {
+    const now = at(2026, 3, 15)
+    const report = buildUsageReport([
+      entry('s1', {
+        '2026-03-15': {
+          'deepseek\u0000chat': counts(2, 100, 50, 30, 10),
+          'ktc-claude\u0000claude-opus-5': counts(1, 900, 100),
+        },
+      }),
+    ], { now, foldedAt: now, folding: false, prices, provider: 'deepseek' })
+
+    // The narrowing reaches every figure — the route list, the totals, the days,
+    // and the sessions — so nothing on the panel describes another route.
+    expect(report.providers.map(row => row.provider)).toEqual(['deepseek'])
+    expect(report.allTimeTotals.totalTokens).toBe(190)
+    expect(report.todayTotals.totalTokens).toBe(190)
+    expect(report.days).toHaveLength(1)
+    expect(report.days[0]).toMatchObject({ date: '2026-03-15', calls: 2, totalTokens: 190 })
+    expect(report.days[0]?.models.map(row => row.model)).toEqual(['chat'])
+    expect(report.sessions).toHaveLength(1)
+    expect(report.sessions[0]).toMatchObject({ id: 's1', calls: 2, totalTokens: 190 })
+    expect(report.sessions[0]?.routes).toEqual(['deepseek/chat'])
+
+    // A route with no usage in the corpus reports an empty report, not the whole one.
+    const empty = buildUsageReport([
+      entry('s1', { '2026-03-15': { 'deepseek\u0000chat': counts(2, 100, 50) } }),
+    ], { now, foldedAt: now, folding: false, prices, provider: 'pro' })
+    expect(empty.allTimeTotals.totalTokens).toBe(0)
+    expect(empty.providers).toEqual([])
+    expect(empty.days).toEqual([])
+    expect(empty.sessions).toEqual([])
+  })
+
   it('splits totals into today, this month, and all time', () => {
     const now = at(2026, 3, 15)
     const report = buildUsageReport([

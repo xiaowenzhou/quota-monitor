@@ -76,7 +76,10 @@ function BrandGlyph() {
 export function UsagePanel({ t, quota }: UsagePanelProps) {
   const [snapshot, setSnapshot] = useState<QuotaSnapshot | undefined>()
   const [account, setAccount] = useState<QuotaAccount | undefined>()
+  /** The selected route's own figures: the totals, calendar, and sessions below. */
   const [usage, setUsage] = useState<QuotaUsageReport | undefined>()
+  /** Every route together, which is what the provider comparison reads. */
+  const [allUsage, setAllUsage] = useState<QuotaUsageReport | undefined>()
   const [provider, setProvider] = useState<string | undefined>()
   const [month, setMonth] = useState<string | undefined>()
   const [selectedDay, setSelectedDay] = useState<string | undefined>()
@@ -91,9 +94,18 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
     setProvider(current => current ?? result.value.providers[0]?.id)
   }, [quota])
 
-  const loadUsage = useCallback(async (refresh: boolean) => {
-    const result = await quota.getUsage({ refresh })
-    if (result.ok) setUsage(result.value)
+  const loadUsage = useCallback(async (id: string | undefined, refresh: boolean) => {
+    // Each read publishes as it lands, so the selected route's figures are not
+    // held up by the comparison read that shares the request.
+    const scoped = quota
+      .getUsage({ refresh, ...id === undefined ? {} : { provider: id } })
+      .then(result => {
+        if (result.ok) setUsage(result.value)
+      })
+    const all = quota.getUsage({}).then(result => {
+      if (result.ok) setAllUsage(result.value)
+    })
+    await Promise.all([scoped, all])
   }, [quota])
 
   const loadAccount = useCallback(async (id: string, refresh: boolean) => {
@@ -103,21 +115,22 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
 
   useEffect(() => {
     void loadSnapshot()
-    void loadUsage(false)
-  }, [loadSnapshot, loadUsage])
+  }, [loadSnapshot])
 
   useEffect(() => {
     if (provider === undefined) return
     setAccount(undefined)
     void loadAccount(provider, false)
-  }, [provider, loadAccount])
+    // The statistics follow the same selection as the account card.
+    void loadUsage(provider, false)
+  }, [provider, loadAccount, loadUsage])
 
   const refreshAll = useCallback(async () => {
     setBusy(true)
     try {
       await loadSnapshot()
       await Promise.all([
-        loadUsage(true),
+        loadUsage(provider, true),
         provider === undefined ? Promise.resolve() : loadAccount(provider, true),
       ])
     } finally {
@@ -127,8 +140,11 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
 
   const resetStats = useCallback(async () => {
     const result = await quota.resetStats({})
-    if (result.ok) setSnapshot(result.value)
-  }, [quota])
+    if (result.ok) {
+      setSnapshot(result.value)
+      await loadUsage(provider, false)
+    }
+  }, [quota, loadUsage, provider])
 
   const setManual = useCallback(async (id: string, value: number) => {
     await quota.setBalances({ balances: { [id]: value } })
@@ -158,6 +174,10 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
     () => Object.fromEntries(providers.map(entry => [entry.id, entry.name])),
     [providers],
   )
+  /** The selected route's display name, which the statistics section states. */
+  const scopeName = provider === undefined
+    ? undefined
+    : providerNames[provider] ?? provider
 
   return <div className={css.panel}>
     <header className={css.header}>
@@ -207,6 +227,9 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
     <section className={css.section}>
       <div className={css.sectionHead}>
         <h2 className={css.sectionTitle}>{t('usage.heading')}</h2>
+        {scopeName === undefined
+          ? null
+          : <span className={css.sectionMeta}>{t('usage.scope', { provider: scopeName })}</span>}
       </div>
       <TotalsRow t={t} usage={usage} />
     </section>
@@ -214,14 +237,17 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
     <section className={css.section}>
       <div className={css.sectionHead}>
         <h2 className={css.sectionTitle}>{t('provider.heading')}</h2>
+        <span className={css.sectionMeta}>{t('provider.hint')}</span>
       </div>
       <ProviderUsage
         t={t}
-        providers={usage?.providers ?? []}
+        providers={allUsage?.providers ?? []}
         names={providerNames}
-        allTimeTokens={usage?.allTimeTotals.totalTokens ?? 0}
-        todayTokens={usage?.todayTotals.totalTokens ?? 0}
-        monthTokens={usage?.monthTotals.totalTokens ?? 0}
+        selected={provider}
+        onSelect={setProvider}
+        allTimeTokens={allUsage?.allTimeTotals.totalTokens ?? 0}
+        todayTokens={allUsage?.todayTotals.totalTokens ?? 0}
+        monthTokens={allUsage?.monthTotals.totalTokens ?? 0}
       />
     </section>
 

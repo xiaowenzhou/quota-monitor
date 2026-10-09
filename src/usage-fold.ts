@@ -288,6 +288,11 @@ export interface QuotaReportOptions {
   prices?: QuotaPriceTable
   /** Spend ceilings to measure the derived cost against. */
   budgets?: QuotaBudgetConfig
+  /**
+   * Report one provider route alone: its days, its sessions, and its totals.
+   * Omitted reports every route together, which is the per-provider comparison.
+   */
+  provider?: string
 }
 
 /**
@@ -330,7 +335,7 @@ export function buildUsageReport(
   states: Iterable<readonly [SessionId, SessionFoldState]>,
   options: QuotaReportOptions,
 ): QuotaUsageReport {
-  const { now, foldedAt, folding, prices, budgets } = options
+  const { now, foldedAt, folding, prices, budgets, provider: only } = options
   const byDay = new Map<string, DayAccumulator>()
   const byProvider = new Map<string, ProviderAccumulator>()
   const sessions: QuotaSessionUsage[] = []
@@ -344,11 +349,14 @@ export function buildUsageReport(
     let calls = 0
 
     for (const [date, perRoute] of Object.entries(state.days)) {
-      const day: DayAccumulator = byDay.get(date)
-        ?? { date, calls: 0, models: new Map<string, ModelAccumulator>() }
-      byDay.set(date, day)
       for (const [key, counts] of Object.entries(perRoute)) {
         const [provider = 'unknown', model = 'unknown'] = key.split(KEY_SEP)
+        // A filtered report drops the other routes here, so every figure below
+        // — the day, the session, and the totals — describes one route alone.
+        if (only !== undefined && provider !== only) continue
+        const day: DayAccumulator = byDay.get(date)
+          ?? { date, calls: 0, models: new Map<string, ModelAccumulator>() }
+        byDay.set(date, day)
         const row = day.models.get(key) ?? {
           provider,
           model,

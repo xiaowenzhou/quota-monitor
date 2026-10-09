@@ -291,19 +291,23 @@ describe('quota monitor usage panel', () => {
     expect(section).toBeTruthy()
     const rows = within(section)
 
-    // The route the snapshot names is labelled with its name and its key; a
-    // route the snapshot does not know falls back to the key alone.
-    expect(rows.getByText('DeepSeek')).toBeTruthy()
+    // Collapsed, the section describes the route the panel is scoped to, which
+    // is the first provider the snapshot listed.
+    expect(await rows.findByText('DeepSeek')).toBeTruthy()
     expect(rows.getByText('deepseek')).toBeTruthy()
-    expect(rows.getByText('pro')).toBeTruthy()
+    expect(rows.queryByText('pro')).toBeNull()
 
     // This month is the range a deployment watches day to day, so it leads.
     expect(rows.getByText('500')).toBeTruthy()
     expect(rows.getByText('62.5% of this month')).toBeTruthy()
-    expect(rows.getByText('300')).toBeTruthy()
-    expect(rows.getByText('37.5% of this month')).toBeTruthy()
     expect(rows.getByText('30 calls · 3 models · Cache hit 25.0% · Last 2026-03-15')).toBeTruthy()
     expect(rows.getByText('4 USD')).toBeTruthy()
+
+    // The whole list is one click away, and it compares the routes.
+    fireEvent.click(rows.getByRole('button', { name: 'All 2' }))
+    expect(await rows.findByText('pro')).toBeTruthy()
+    expect(rows.getByText('300')).toBeTruthy()
+    expect(rows.getByText('37.5% of this month')).toBeTruthy()
 
     // All time restates the same routes over every folded day.
     fireEvent.click(rows.getByRole('button', { name: 'All time' }))
@@ -319,6 +323,42 @@ describe('quota monitor usage panel', () => {
     expect(rows.getByText('1.25 USD')).toBeTruthy()
     const text = section.textContent ?? ''
     expect(text.indexOf('pro')).toBeLessThan(text.indexOf('DeepSeek'))
+  })
+
+  it('scopes the statistics to the route the reader selects', async () => {
+    const twoProviders: QuotaSnapshot = {
+      ...SNAPSHOT,
+      providers: [
+        ...SNAPSHOT.providers,
+        {
+          id: 'pro',
+          name: 'Pro',
+          mode: 'balance',
+          adapter: 'sub2api',
+          status: 'ok',
+          warning: 'normal',
+        },
+      ],
+    }
+    const scoped: Record<string, QuotaUsageReport> = {
+      deepseek: { ...USAGE, allTimeTotals: { ...TOTALS, totalTokens: 600 } },
+      pro: { ...USAGE, allTimeTotals: { ...TOTALS, totalTokens: 400 } },
+    }
+    const getUsage = vi.fn((request: { provider?: string }) =>
+      Promise.resolve(ok(scoped[request.provider ?? 'deepseek'] ?? USAGE)))
+    render(<UsagePanel {...props(api({
+      getSnapshot: () => Promise.resolve(ok(twoProviders)),
+      getUsage,
+    }))} />)
+
+    // The selection the account card starts on scopes the statistics.
+    expect(await screen.findByText('DeepSeek only')).toBeTruthy()
+    expect(getUsage).toHaveBeenCalledWith({ refresh: false, provider: 'deepseek' })
+
+    // The card's own selector re-scopes them, so both halves describe one route.
+    fireEvent.click(await screen.findByRole('button', { name: 'Pro' }))
+    expect(await screen.findByText('Pro only')).toBeTruthy()
+    await waitFor(() => { expect(getUsage).toHaveBeenCalledWith({ refresh: false, provider: 'pro' }) })
   })
 
   it('shows the usage the gateway reported for the account credential', async () => {
@@ -357,7 +397,7 @@ describe('quota monitor usage panel', () => {
     render(<UsagePanel {...props(api())} />)
 
     expect(await screen.findByText('Select a day in the calendar above to see its breakdown')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /^2026-03-15:/u }))
+    fireEvent.click(await screen.findByRole('button', { name: /^2026-03-15:/u }))
 
     expect(await screen.findByText('2026-03-15 breakdown')).toBeTruthy()
     expect(screen.getByText('deepseek-chat')).toBeTruthy()
@@ -402,7 +442,9 @@ describe('quota monitor usage panel', () => {
     fireEvent.click(headerRefresh(container))
 
     expect(await screen.findByText('Refreshing…')).toBeTruthy()
-    await waitFor(() => { expect(getUsage).toHaveBeenLastCalledWith({ refresh: true }) })
+    await waitFor(() => {
+      expect(getUsage).toHaveBeenCalledWith({ refresh: true, provider: 'deepseek' })
+    })
 
     release?.()
     expect(await screen.findByRole('button', { name: 'Refresh' })).toBeTruthy()
@@ -453,8 +495,10 @@ describe('quota monitor usage panel', () => {
     fireEvent.click(headerRefresh(container))
 
     // The failed round leaves the previous report standing rather than blanking it.
-    await waitFor(() => { expect(getUsage).toHaveBeenCalledTimes(2) })
-    expect(screen.getByText('session-a')).toBeTruthy()
+    await waitFor(() => {
+      expect(getUsage).toHaveBeenCalledWith({ refresh: true, provider: 'deepseek' })
+    })
+    expect(await screen.findByText('session-a')).toBeTruthy()
   })
 
   it('offers only the three export kinds the Host can build', async () => {

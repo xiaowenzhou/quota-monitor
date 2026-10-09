@@ -91,12 +91,16 @@ export const zh = {
   'usage.folding': '正在统计历史会话…',
   'usage.foldedAt': '统计于 {time}',
   'usage.empty': '暂无用量记录',
+  'usage.scope': '仅 {provider}',
 
   'cost.unpriced': '另有 {calls} 次调用未配置价格',
   'cost.unconfigured': '配置 pricing.rules 后显示预估费用',
 
   'provider.heading': '按供应商统计',
   'provider.empty': '暂无按供应商的用量',
+  'provider.hint': '点击任一供应商即可把上方统计切换到它',
+  'provider.showAll': '全部 {count} 个',
+  'provider.showSelected': '只看当前',
   'provider.share.today': '占今日 {percent}',
   'provider.share.month': '占本月 {percent}',
   'provider.share.allTime': '占累计 {percent}',
@@ -236,12 +240,16 @@ export const en = {
   'usage.folding': 'Folding session history…',
   'usage.foldedAt': 'Folded {time}',
   'usage.empty': 'No usage recorded yet',
+  'usage.scope': '{provider} only',
 
   'cost.unpriced': '{calls} more calls have no configured price',
   'cost.unconfigured': 'Configure pricing.rules to see estimated cost',
 
   'provider.heading': 'Usage by provider',
   'provider.empty': 'No per-provider usage yet',
+  'provider.hint': 'Pick a route to scope the statistics above',
+  'provider.showAll': 'All {count}',
+  'provider.showSelected': 'Selected only',
   'provider.share.today': '{percent} of today',
   'provider.share.month': '{percent} of this month',
   'provider.share.allTime': '{percent} of all tokens',

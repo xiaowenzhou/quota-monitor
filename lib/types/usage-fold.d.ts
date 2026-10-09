@@ -82,6 +82,11 @@ export interface QuotaReportOptions {
     prices?: QuotaPriceTable;
     /** Spend ceilings to measure the derived cost against. */
     budgets?: QuotaBudgetConfig;
+    /**
+     * Report one provider route alone: its days, its sessions, and its totals.
+     * Omitted reports every route together, which is the per-provider comparison.
+     */
+    provider?: string;
 }
 /**
  * Merge every session's fold state into the report the panel reads.

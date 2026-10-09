@@ -219,13 +219,14 @@ export class QuotaMonitorService extends TypertRemoteService {
 
   /**
    * The folded historical usage report.
-   * @param request - `refresh: true` forces a fold round before answering.
+   * @param request - `refresh: true` forces a fold round before answering;
+   * `provider` reports that route alone instead of every route together.
    * @returns the report, with `folding` set while a round runs.
    */
   @Remote('getUsage')
   async getUsage(request: QuotaUsageRequest): Promise<QuotaUsageReport> {
-    if (request.refresh === true) return this.usageStore.refresh()
-    return this.usageStore.current()
+    if (request.refresh === true) return this.usageStore.refresh(request.provider)
+    return this.usageStore.current(request.provider)
   }
 
   /**

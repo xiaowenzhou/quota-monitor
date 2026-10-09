@@ -1,10 +1,11 @@
 /**
- * The provider breakdown: folded token totals per provider route, so a
- * deployment can see which route spent them instead of one combined figure.
+ * The provider breakdown: folded token totals per provider route.
  *
- * The scope switch picks which of the three scopes the rows state — today, this
- * month, or every folded day — and the rows are ordered by that scope's tokens,
- * so the busiest route reads first for the range on screen.
+ * The panel's statistics follow one selected route, so this section is how that
+ * route is chosen — a row selects it — and it states what the choice costs: a
+ * compact view of the selected route against every route's total, or the whole
+ * list once the reader asks for it. The range chips pick which scope the rows
+ * state, and the rows are ordered by that scope's tokens.
  *
  * The report carries route keys only, so a route the snapshot knows is labelled
  * with its display name and an unknown one falls back to the key itself.
@@ -80,6 +81,10 @@ export interface ProviderUsageProps {
   providers: readonly QuotaProviderUsage[]
   /** Route key → display name, for the routes the snapshot knows. */
   names: Readonly<Record<string, string>>
+  /** The route the panel's statistics follow. */
+  selected: string | undefined
+  /** Select a route, which re-scopes the statistics above this section. */
+  onSelect: (id: string) => void
   /** All-time tokens across every route, the denominator of the all-time share. */
   allTimeTokens: number
   /** Tokens folded for today, the denominator of the today share. */
@@ -90,16 +95,19 @@ export interface ProviderUsageProps {
 
 /**
  * One route's row: its figures for the selected range, its share of that range,
- * and the lifetime facts that belong to no single range.
- * @param props - the row and the labels it is rendered with.
+ * and the lifetime facts that belong to no single range. Selecting it makes it
+ * the route the rest of the panel describes.
+ * @param props - the row and the state it renders against.
  * @returns the row element.
  */
-function ProviderRow({ t, row, names, scope, denominator }: {
+function ProviderRow({ t, row, names, scope, denominator, selected, onSelect }: {
   t: QuotaTranslate
   row: QuotaProviderUsage
   names: Readonly<Record<string, string>>
   scope: Scope
   denominator: number
+  selected: boolean
+  onSelect: (id: string) => void
 }) {
   const name = names[row.provider]
   const figures = figuresOf(row, scope)
@@ -115,44 +123,75 @@ function ProviderRow({ t, row, names, scope, denominator }: {
     t('provider.lastDay', { date: row.lastDay }),
   ].filter(part => part !== undefined)
 
-  return <div className={css.providerRow}>
-    <div className={css.providerHead}>
+  return <button
+    type="button"
+    className={`${css.providerRow} ${selected ? css.providerRowActive : ''}`}
+    aria-pressed={selected}
+    onClick={() => onSelect(row.provider)}
+  >
+    <span className={css.providerHead}>
       <span className={css.providerName}>{name ?? row.provider}</span>
       {name === undefined ? null : <span className={css.providerId}>{row.provider}</span>}
       <span className={css.providerTokens}>{fmtTokens(figures.tokens)}</span>
-    </div>
-    <div className={css.bar}>
-      <div className={css.barFill} style={{ width: `${Math.min(100, share)}%` }} />
-    </div>
-    <div className={css.providerFoot}>
+    </span>
+    <span className={css.bar}>
+      <span className={css.barFill} style={{ width: `${Math.min(100, share)}%` }} />
+    </span>
+    <span className={css.providerFoot}>
       <span className={css.providerShare}>{t(SHARE_KEYS[scope], { percent: fmtPercent(share) })}</span>
       {figures.cost === undefined ? null : <span className={css.providerCost}>{fmtCost(figures.cost)}</span>}
-    </div>
+    </span>
     <span className={css.providerMeta}>{meta.join(' · ')}</span>
-  </div>
+  </button>
 }
 
-export function ProviderUsage({ t, providers, names, allTimeTokens, todayTokens, monthTokens }: ProviderUsageProps) {
+export function ProviderUsage({
+  t,
+  providers,
+  names,
+  selected,
+  onSelect,
+  allTimeTokens,
+  todayTokens,
+  monthTokens,
+}: ProviderUsageProps) {
   const [scope, setScope] = useState<Scope>('month')
+  const [expanded, setExpanded] = useState(false)
   const denominator = scope === 'today' ? todayTokens : scope === 'month' ? monthTokens : allTimeTokens
   // Ordering follows the range on screen: the Host sorted by all time, and a
   // quiet day should still lead with the route that spent the most of it.
-  const rows = useMemo(
+  const sorted = useMemo(
     () => [...providers].sort((left, right) => figuresOf(right, scope).tokens - figuresOf(left, scope).tokens),
     [providers, scope],
   )
 
   if (providers.length === 0) return <p className={css.empty}>{t('provider.empty')}</p>
 
+  const chosen = sorted.find(row => row.provider === selected)
+  // Collapsed, the section describes the selected route alone; the whole list is
+  // one click away, and a selection with no usable row falls back to the busiest
+  // route so the section is never blank.
+  const rows = expanded ? sorted : [chosen ?? sorted[0]!]
+
   return <div className={css.providerList}>
-    <div className={css.selector} role="group" aria-label={t('provider.heading')}>
-      {(Object.keys(SCOPE_KEYS) as Scope[]).map(key => <button
-        key={key}
-        type="button"
-        className={`${css.selectorChip} ${key === scope ? css.selectorChipActive : ''}`}
-        aria-pressed={key === scope}
-        onClick={() => setScope(key)}
-      >{t(SCOPE_KEYS[key])}</button>)}
+    <div className={css.providerTools}>
+      <div className={css.selector} role="group" aria-label={t('provider.heading')}>
+        {(Object.keys(SCOPE_KEYS) as Scope[]).map(key => <button
+          key={key}
+          type="button"
+          className={`${css.selectorChip} ${key === scope ? css.selectorChipActive : ''}`}
+          aria-pressed={key === scope}
+          onClick={() => setScope(key)}
+        >{t(SCOPE_KEYS[key])}</button>)}
+      </div>
+      {providers.length === 1
+        ? null
+        : <button
+          type="button"
+          className={css.providerToggle}
+          aria-expanded={expanded}
+          onClick={() => setExpanded(current => !current)}
+        >{expanded ? t('provider.showSelected') : t('provider.showAll', { count: String(providers.length) })}</button>}
     </div>
     {rows.map(row => <ProviderRow
       key={row.provider}
@@ -161,6 +200,8 @@ export function ProviderUsage({ t, providers, names, allTimeTokens, todayTokens,
       names={names}
       scope={scope}
       denominator={denominator}
+      selected={row.provider === selected}
+      onSelect={onSelect}
     />)}
   </div>
 }

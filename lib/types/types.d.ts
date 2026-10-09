@@ -378,6 +378,11 @@ export interface QuotaAccountRequest {
 export interface QuotaUsageRequest {
     /** Run a fold round before answering, instead of serving the cached report. */
     refresh?: boolean;
+    /**
+     * Report only this provider route's days, sessions, and totals. Absent folds
+     * every route together, which is what the per-provider comparison reads.
+     */
+    provider?: string;
 }
 /** Request body for `quotaMonitor/setBalances`. */
 export interface QuotaSetBalancesRequest {
