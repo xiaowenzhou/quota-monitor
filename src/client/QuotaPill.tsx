@@ -7,8 +7,14 @@
  * and disclosed remainder, the balance, the budget pools, and the usage the
  * endpoint itself reported for this credential. It renders nothing when that
  * route's provider publishes no account endpoint — a control that always showed
- * something would be noise — and it yields the seat to another plugin's own
- * allowance chip (see {@link siblingStatesAllowance}).
+ * something would be noise — and it stands down when another plugin's own
+ * allowance chip already speaks for that exact route (see
+ * {@link rivalStatesRoute}).
+ *
+ * That decision belongs here rather than at registration: a rival registers its
+ * entry unconditionally and renders nothing unless the selected route is its
+ * own, so the seat is occupied even while the rival says nothing — and this pill
+ * is the only one that would fill that silence.
  *
  * The route comes from the session's own `modelSelection` projection, so the
  * pill follows the model the next request will use rather than the account
@@ -16,7 +22,7 @@
  * @module @deepseek-ai/dsh-extension-quota-monitor/client/QuotaPill
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the ui-conversation SlotMap merge declaring this seat.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -25,6 +31,7 @@ import type { QuotaAccount, QuotaGatewayUsage, QuotaPlanWindow } from '../types.
 import type { QuotaMonitorApi, QuotaTranslate } from './UsagePanel.tsx'
 import { fmtAmount, fmtNumber, fmtPercent, fmtTime, fmtTokens, resetLabel } from './format.ts'
 import { accountTone, hasFigure, WINDOW_KEYS, worstWindows } from './windows.ts'
+import { PILL_ID, rivalStatesRoute } from './yield.ts'
 import type {} from './locales.ts'
 import css from './QuotaPill.module.css'
 
@@ -48,10 +55,28 @@ const GATEWAY_KEYS: Readonly<Record<QuotaGatewayUsage['kind'], 'gateway.days'
   pool: 'gateway.pools',
 })
 
+/**
+ * A live view of the entries sharing this seat.
+ *
+ * The arbitration below must run per render rather than once at registration,
+ * because what decides it — the selected route — is render state. This face
+ * keeps the entry list observable so a rival arriving or leaving re-decides.
+ */
+export interface SeatRivals {
+  /** Version counter of the seat's entry list, for `useSyncExternalStore`. */
+  version: () => number
+  /** Subscribe to the seat's entry list changing. */
+  subscribe: (listener: () => void) => () => void
+  /** Every entry id currently registered in the seat. */
+  ids: () => readonly (string | undefined)[]
+}
+
 /** What the pill reads through. */
 export interface QuotaPillInjected {
   /** The mounted `ctx.remote.quotaMonitor` face. */
   quota: QuotaMonitorApi
+  /** The other entries in this seat, for the stand-down decision. */
+  rivals: SeatRivals
 }
 
 /** Composed props of the pill entry. */
@@ -115,9 +140,17 @@ function WindowDetail({ t, account, window: entry }: {
   </div>
 }
 
-export function QuotaPill({ t, quota, useProjection }: QuotaPillProps) {
+export function QuotaPill({ t, quota, rivals, useProjection }: QuotaPillProps) {
   const selection = useProjection('modelSelection')
   const provider = selection?.next?.provider
+  // The seat's occupant list, read as an external store: a rival chip may
+  // arrive or leave at any time, and this pill re-decides then rather than
+  // registering conditionally (see `rivalStatesRoute`).
+  const seatVersion = useSyncExternalStore(rivals.subscribe, rivals.version)
+  const standsDown = useMemo(() => {
+    void seatVersion
+    return provider === undefined ? false : rivalStatesRoute(rivals.ids(), PILL_ID, provider)
+  }, [rivals, seatVersion, provider])
   const [account, setAccount] = useState<QuotaAccount | undefined>()
   const [reading, setReading] = useState(false)
   const [open, setOpen] = useState(false)
@@ -164,7 +197,7 @@ export function QuotaPill({ t, quota, useProjection }: QuotaPillProps) {
     return () => { document.removeEventListener('keydown', onKey) }
   }, [open])
 
-  if (provider === undefined || account === undefined) return null
+  if (provider === undefined || standsDown || account === undefined) return null
   // A stale reading for another route, or one with no figure to state, says
   // nothing worth the tool row's width.
   if (account.id !== provider || account.status !== 'ok' || !hasFigure(account)) return null

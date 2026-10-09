@@ -24,16 +24,15 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import quotaMonitorRemote from '@deepseek-ai/dsh-extension-quota-monitor/remote'
 import { UsagePanel, type UsagePanelInjected } from './UsagePanel.tsx'
-import { QuotaPill, type QuotaPillInjected } from './QuotaPill.tsx'
+import { QuotaPill, type QuotaPillInjected, type SeatRivals } from './QuotaPill.tsx'
 import { UsageIcon } from './UsageIcon.tsx'
-import { siblingStatesAllowance } from './yield.ts'
+import { PILL_ID } from './yield.ts'
 import { en, NS, zh } from './locales.ts'
 
-/** Sidebar entry id, and the `main` key it addresses. */
+/**
+ * Sidebar entry id, and the `main` key it addresses.
+ */
 const PANEL_ID = 'quota-monitor'
-
-/** Composer pill entry id, beside the model selector it describes. */
-const PILL_ID = 'quota-monitor-pill'
 
 /**
  * Required services: the typed Remote mount, the slot registry, and the
@@ -83,36 +82,32 @@ export async function apply(ctx: ClientContext): Promise<void> {
     // through the standard projection seat rather than another plugin's state.
     //
     // The seat is a list another plugin may already occupy with its own
-    // allowance chip — `dsh-cline-pass` publishes `cline-pass-usage` — so the
-    // entry is registered only while no sibling states one, and the seat is
-    // watched rather than sampled once, because that plugin may load after this
-    // one.
+    // allowance chip — `dsh-cline-pass` publishes `cline-pass-usage` — and such
+    // a chip registers unconditionally, rendering nothing unless the selected
+    // route is its own. Presence in the seat therefore cannot decide anything up
+    // front: this entry is always registered, and the pill stands down inside
+    // its own render, once the selected route is known. It reads the seat's
+    // occupant list through an observable face rather than sampling it once, so
+    // a rival arriving or leaving re-decides on the spot.
     scope.slots.inject('conversation.input.right', () => {
-      let entry: (() => void) | undefined
-      const sync = (): void => {
-        const rivals = scope.slots
+      // Built once per seat: the pill reads this through `useSyncExternalStore`,
+      // so an identity that changed each render would re-subscribe every frame.
+      const rivals: SeatRivals = {
+        version: () => scope.slots.getVersion('conversation.input.right'),
+        subscribe: listener => scope.slots.subscribe('conversation.input.right', listener),
+        // `entriesOfSlot` yields the live winner per cell, so a rival that
+        // abdicated after a render crash no longer claims the seat.
+        ids: () => scope.slots
           .entriesOfSlot('conversation.input.right')
-          .map(candidate => candidate.options.id)
-        if (siblingStatesAllowance(rivals, PILL_ID)) {
-          entry?.()
-          entry = undefined
-          return
-        }
-        entry ??= scope.slots.register({
-          name: 'conversation.input.right',
-          id: PILL_ID,
-          order: 90,
-          locale: NS,
-          inject: (): QuotaPillInjected => ({ quota: scope.remote.quotaMonitor }),
-        }, QuotaPill)
+          .map(candidate => candidate.options.id),
       }
-      sync()
-      const stop = scope.slots.subscribe('conversation.input.right', sync)
-      return () => {
-        stop()
-        entry?.()
-        entry = undefined
-      }
+      return scope.slots.register({
+        name: 'conversation.input.right',
+        id: PILL_ID,
+        order: 90,
+        locale: NS,
+        inject: (): QuotaPillInjected => ({ quota: scope.remote.quotaMonitor, rivals }),
+      }, QuotaPill)
     })
   })
 }

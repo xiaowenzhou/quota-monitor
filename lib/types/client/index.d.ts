@@ -1,7 +1,8 @@
 /**
  * Quota monitor browser half: mounts the generated `quotaMonitor` Remote
- * contribution, adds a sidebar rail entry, and registers the matching usage
- * panel in the layout's `main` slot.
+ * contribution, adds a sidebar rail entry, registers the matching usage panel in
+ * the layout's `main` slot, and puts the selected route's allowance on the
+ * composer's tool row beside the model selector.
  *
  * The rail entry's id and the `main` key are the same string: that is how the
  * sidebar addresses the panel it selects.

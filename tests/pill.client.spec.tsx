@@ -12,13 +12,13 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { makeTranslate, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/index.ts'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { QuotaAccount } from '../src/types.ts'
 import type { QuotaMonitorApi } from '../src/client/UsagePanel.tsx'
-import type { QuotaPillProps } from '../src/client/QuotaPill.tsx'
+import type { QuotaPillProps, SeatRivals } from '../src/client/QuotaPill.tsx'
 import { QuotaPill } from '../src/client/QuotaPill.tsx'
 import { en } from '../src/client/locales.ts'
 
@@ -98,11 +98,41 @@ function api(account: QuotaAccount | undefined): QuotaMonitorApi {
   }
 }
 
+/** A seat rival list the test controls, observable the way the real seat is. */
+interface TestSeat extends SeatRivals {
+  /** Register or remove a rival chip the way another plugin would. */
+  set: (next: readonly (string | undefined)[]) => void
+}
+
+function seat(ids: readonly (string | undefined)[] = []): TestSeat {
+  const listeners = new Set<() => void>()
+  let version = 0
+  let current = ids
+  return {
+    version: () => version,
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    ids: () => current,
+    set: (next) => {
+      current = next
+      version += 1
+      for (const listener of listeners) listener()
+    },
+  }
+}
+
 /** The pill's props: the locale seat, the injected Remote face, and the seat hook. */
-function props(quota: QuotaMonitorApi, provider: string | undefined): QuotaPillProps {
+function props(
+  quota: QuotaMonitorApi,
+  provider: string | undefined,
+  rivals: SeatRivals = seat(),
+): QuotaPillProps {
   return {
     t: makeTranslate(en, commonEn),
     quota,
+    rivals,
     sessionId: 'session-a',
     useProjection: (key: string) => (key === 'modelSelection' ? selection(provider) : undefined),
   } as unknown as QuotaPillProps
@@ -227,5 +257,29 @@ describe('quota pill', () => {
     await waitFor(() => { expect(getAccount).toHaveBeenCalledTimes(2) })
     // The pill and the open reading both state it; the point is it survived.
     expect(screen.getAllByText('495.39 USD').length).toBeGreaterThan(0)
+  })
+
+  it('still states a route whose seat is occupied by a rival\'s silent chip', async () => {
+    // The regression: `dsh-cline-pass` registers `cline-pass-usage` for every
+    // route and renders nothing unless that route is its own. A seat-occupant
+    // check would have retired this pill for good — including here, where the
+    // selected route is `cline` and the rival chip says nothing at all.
+    render(<QuotaPill {...props(api(WALLET), 'ktc-claude', seat(['cline-pass-usage']))} />)
+
+    expect(await screen.findByText('KTC')).toBeTruthy()
+  })
+
+  it('stands down for a rival chip that speaks for the selected route, and takes the seat back', async () => {
+    const rivals = seat()
+    render(<QuotaPill {...props(api(WALLET), 'ktc-claude', rivals)} />)
+    expect(await screen.findByText('KTC')).toBeTruthy()
+
+    // The rival's chip arrives already stating this route: it wins the seat.
+    act(() => { rivals.set(['ktc-claude-usage']) })
+    await waitFor(() => { expect(screen.queryByText('KTC')).toBeNull() })
+
+    // It leaves — this route's reading returns rather than staying blank.
+    act(() => { rivals.set([]) })
+    expect(await screen.findByText('KTC')).toBeTruthy()
   })
 })
