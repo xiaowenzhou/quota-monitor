@@ -38,7 +38,7 @@ function report(): QuotaUsageReport {
     now,
     foldedAt: now,
     folding: false,
-    prices: { currency: 'USD', rules: [{ inputPerMillion: 1, outputPerMillion: 2 }] },
+    prices: { currency: 'USD', rules: [{ inputPerMillion: 1, outputPerMillion: 2 }], fuzzyMatch: false },
   })
 }
 

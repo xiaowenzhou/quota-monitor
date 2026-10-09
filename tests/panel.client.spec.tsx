@@ -361,6 +361,48 @@ describe('quota monitor usage panel', () => {
     await waitFor(() => { expect(getUsage).toHaveBeenCalledWith({ refresh: false, provider: 'pro' }) })
   })
 
+  it('leaves a route out of a range it did not spend in', async () => {
+    const usage: QuotaUsageReport = {
+      ...USAGE,
+      providers: [
+        { ...USAGE.providers[0]!, monthTokens: 500, monthCalls: 30 },
+        {
+          provider: 'pro',
+          calls: 10,
+          inputTokens: 100,
+          outputTokens: 100,
+          cacheReadTokens: 200,
+          cacheWriteTokens: 0,
+          totalTokens: 400,
+          cacheHitPercent: 50,
+          todayCalls: 0,
+          todayTokens: 0,
+          monthCalls: 0,
+          monthTokens: 0,
+          models: 2,
+          lastDay: '2026-03-14',
+        },
+      ],
+    }
+    render(<UsagePanel {...props(api({ getUsage: () => Promise.resolve(ok(usage)) }))} />)
+
+    const heading = await screen.findByText('Usage by provider')
+    const rows = within(heading.closest('section') as HTMLElement)
+
+    // This month is the default range, and pro spent nothing in it: the row is
+    // replaced by a note rather than shown with old figures beside it.
+    expect(await rows.findByText('500')).toBeTruthy()
+    expect(rows.queryByText('pro')).toBeNull()
+    expect(rows.getByText('1 more routes have no usage in this range')).toBeTruthy()
+
+    // The route is still a route: its all-time figures appear with that range.
+    fireEvent.click(rows.getByRole('button', { name: 'All 2' }))
+    fireEvent.click(rows.getByRole('button', { name: 'All time' }))
+    expect(await rows.findByText('pro')).toBeTruthy()
+    expect(rows.getByText('400')).toBeTruthy()
+    expect(rows.queryByText('1 more routes have no usage in this range')).toBeNull()
+  })
+
   it('shows the usage the gateway reported for the account credential', async () => {
     const account: QuotaAccount = {
       ...ACCOUNT,

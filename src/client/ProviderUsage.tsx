@@ -168,10 +168,12 @@ export function ProviderUsage({
   if (providers.length === 0) return <p className={css.empty}>{t('provider.empty')}</p>
 
   const chosen = sorted.find(row => row.provider === selected)
-  // Collapsed, the section describes the selected route alone; the whole list is
-  // one click away, and a selection with no usable row falls back to the busiest
-  // route so the section is never blank.
-  const rows = expanded ? sorted : [chosen ?? sorted[0]!]
+  // A route with no usage in the selected range does not get a row: listing it
+  // would present a route that only ever ran months ago as if it were spending
+  // now. The focused route is always shown, so the section never hides the
+  // choice it describes.
+  const active = sorted.filter(row => figuresOf(row, scope).tokens > 0)
+  const rows = expanded ? active : [chosen ?? active[0] ?? sorted[0]!]
 
   return <div className={css.providerList}>
     <div className={css.providerTools}>
@@ -203,5 +205,10 @@ export function ProviderUsage({
       selected={row.provider === selected}
       onSelect={onSelect}
     />)}
+    {sorted.length > active.length
+      ? <p className={css.sectionMeta}>
+        {t('provider.idle', { count: String(sorted.length - active.length) })}
+      </p>
+      : null}
   </div>
 }

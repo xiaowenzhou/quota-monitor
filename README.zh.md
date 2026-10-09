@@ -266,6 +266,8 @@ config:
 
 面板文案归属 locale：`src/client/locales.ts` 声明 `quotaMonitor` 命名空间与两份随附词典，`main` 注册声明 `locale: NS`，每个组件都通过框架的 `t` 座位读取字符串。`verify-client-ui-i18n` 会拒绝重新写回组件的字符串。
 
+`lib/typert.host.js` 与 `lib/typert.remote-client.js` 由仓库的 Typert 环节生成，而该环节只在**根目录**的 host 构建中运行（`pnpm run build:lib:host`，或在仓库根执行 `tsdown --env.DSH_BUILD_FACE host`）。只跑包内 `tsdown` 只会产出 `lib/index.js` 与 `lib/client.js`，因此改动 Remote 的请求或结果类型时，随包发布的线上 schema 会停留在旧版本——而 schema 未声明的参数会在服务看到它之前就被丢弃。请走根构建，让清单与类型一起更新。
+
 侧边栏入口 id 与 `main` slot key 是同一个字符串（`quota-monitor`）；这个同一性正是侧边栏据以定位所选面板的方式，只改其中一处会让入口静默失联。
 
 面板的着色梯度、状态配色与进度条只由 design-platform 的别名 token 构成；五级日历梯度出自对 `--dsw-alias-state-business-primary` 的 `color-mix`，因此日历随主题切换而变化，不需要第二套调色板。
