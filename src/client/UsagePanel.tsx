@@ -30,6 +30,7 @@ import { AccountCard } from './AccountCard.tsx'
 import { ExportBar } from './ExportBar.tsx'
 import { UsageHeatmap } from './UsageHeatmap.tsx'
 import { DayBreakdown } from './DayBreakdown.tsx'
+import { ProviderUsage } from './ProviderUsage.tsx'
 import { SessionList } from './SessionList.tsx'
 import { TotalsRow } from './TotalsRow.tsx'
 import css from './UsagePanel.module.css'
@@ -151,6 +152,12 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
 
   const providers = snapshot?.providers ?? []
   const row = snapshot?.rows.find(entry => entry.id === provider)
+  // The folded report carries route keys; the snapshot is what knows a display
+  // name for one, so the two are joined here rather than in the Host.
+  const providerNames = useMemo(
+    () => Object.fromEntries(providers.map(entry => [entry.id, entry.name])),
+    [providers],
+  )
 
   return <div className={css.panel}>
     <header className={css.header}>
@@ -202,6 +209,18 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
         <h2 className={css.sectionTitle}>{t('usage.heading')}</h2>
       </div>
       <TotalsRow t={t} usage={usage} />
+    </section>
+
+    <section className={css.section}>
+      <div className={css.sectionHead}>
+        <h2 className={css.sectionTitle}>{t('provider.heading')}</h2>
+      </div>
+      <ProviderUsage
+        t={t}
+        providers={usage?.providers ?? []}
+        names={providerNames}
+        totalTokens={usage?.allTimeTotals.totalTokens ?? 0}
+      />
     </section>
 
     <section className={css.section}>

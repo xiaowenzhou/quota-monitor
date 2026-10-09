@@ -21,6 +21,7 @@ import type {
   QuotaCostView,
   QuotaDayUsage,
   QuotaModelUsage,
+  QuotaProviderUsage,
   QuotaSessionUsage,
   QuotaTokenTotals,
   QuotaUsageReport,
@@ -46,6 +47,39 @@ interface DayAccumulator {
   date: string
   calls: number
   models: Map<string, ModelAccumulator>
+}
+
+/** Mutable accumulator for one provider route across every folded day. */
+interface ProviderAccumulator {
+  provider: string
+  calls: number
+  totals: QuotaTokenTotals
+  todayCalls: number
+  todayTokens: number
+  models: Set<string>
+  lastDay: string
+  cost: QuotaCostAccumulator
+  todayCost: QuotaCostAccumulator
+}
+
+/**
+ * A zeroed provider accumulator.
+ * @param provider - the route key.
+ * @param prices - the price table, or undefined to derive nothing.
+ * @returns the accumulator, dated before every real day.
+ */
+function emptyProvider(provider: string, prices: QuotaPriceTable | undefined): ProviderAccumulator {
+  return {
+    provider,
+    calls: 0,
+    totals: emptyTotals(),
+    todayCalls: 0,
+    todayTokens: 0,
+    models: new Set<string>(),
+    lastDay: '',
+    cost: new QuotaCostAccumulator(prices),
+    todayCost: new QuotaCostAccumulator(prices),
+  }
 }
 
 /**
@@ -251,6 +285,7 @@ export function buildUsageReport(
 ): QuotaUsageReport {
   const { now, foldedAt, folding, prices, budgets } = options
   const byDay = new Map<string, DayAccumulator>()
+  const byProvider = new Map<string, ProviderAccumulator>()
   const sessions: QuotaSessionUsage[] = []
   let sessionCount = 0
 
@@ -334,6 +369,24 @@ export function buildUsageReport(
       const rowCost = new QuotaCostAccumulator(prices)
       rowCost.add(row.provider, row.model, day.date, row.calls, counts)
       const cost = rowCost.view()
+
+      // The same counters fan out into the route view the panel breaks its
+      // totals down by; one pass, so the two never disagree.
+      const provider = byProvider.get(row.provider) ?? emptyProvider(row.provider, prices)
+      byProvider.set(row.provider, provider)
+      addCounts(provider.totals, counts)
+      provider.calls += row.calls
+      provider.models.add(row.model)
+      provider.cost.add(row.provider, row.model, day.date, row.calls, counts)
+      if (day.date > provider.lastDay) provider.lastDay = day.date
+      if (day.date === today) {
+        const tokens = counts.inputTokens + counts.outputTokens
+          + counts.cacheReadTokens + counts.cacheWriteTokens
+        provider.todayCalls += row.calls
+        provider.todayTokens += tokens
+        provider.todayCost.add(row.provider, row.model, day.date, row.calls, counts)
+      }
+
       models.push({
         provider: row.provider,
         model: row.model,
@@ -358,6 +411,27 @@ export function buildUsageReport(
   }
 
   sessions.sort((left, right) => right.lastActiveAt - left.lastActiveAt || right.totalTokens - left.totalTokens)
+  const providers: QuotaProviderUsage[] = []
+  for (const entry of byProvider.values()) {
+    const cost = entry.cost.view()
+    const todayProviderCost = entry.todayCost.view()
+    const hitPercent = cacheHitPercent(entry.totals)
+    providers.push({
+      provider: entry.provider,
+      calls: entry.calls,
+      ...entry.totals,
+      todayCalls: entry.todayCalls,
+      todayTokens: entry.todayTokens,
+      models: entry.models.size,
+      lastDay: entry.lastDay,
+      ...hitPercent === undefined ? {} : { cacheHitPercent: hitPercent },
+      ...cost === undefined ? {} : { cost },
+      ...todayProviderCost === undefined ? {} : { todayCost: todayProviderCost },
+    })
+  }
+  providers.sort((left, right) => right.totalTokens - left.totalTokens
+    || right.calls - left.calls
+    || left.provider.localeCompare(right.provider))
   const hitPercent = cacheHitPercent(todayTotals)
   const today$ = todayCost.view()
   const month$ = monthCost.view()
@@ -372,6 +446,7 @@ export function buildUsageReport(
     ...month$ === undefined ? {} : { monthCost: month$ },
     ...allTime$ === undefined ? {} : { allTimeCost: allTime$ },
     ...budgetsOf(budgets, prices, today$, month$),
+    providers: Object.freeze(providers),
     days: Object.freeze(days),
     sessions: Object.freeze(sessions),
     sessionCount,

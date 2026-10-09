@@ -258,6 +258,33 @@ export interface QuotaBudgetView {
     monthly?: QuotaBudgetWindow;
 }
 /**
+ * One provider route's folded tokens across every day the fold has read.
+ *
+ * The route key is the finest identity the folded log carries: a request names
+ * a provider and a model, never the credential that served it, so two keys
+ * behind one route cannot be told apart here.
+ */
+export interface QuotaProviderUsage extends QuotaTokenTotals {
+    /** Provider route key, as model requests reported it. */
+    readonly provider: string;
+    /** Calls folded across every day for this route. */
+    calls: number;
+    /** Calls folded for {@link QuotaUsageReport.today} on this route. */
+    todayCalls: number;
+    /** Tokens folded for {@link QuotaUsageReport.today} on this route. */
+    todayTokens: number;
+    /** Cache-hit share of this route's billed input, 0–100; absent with no input. */
+    cacheHitPercent?: number;
+    /** Distinct models folded into this route. */
+    models: number;
+    /** Latest local calendar day carrying usage for this route, `YYYY-MM-DD`. */
+    lastDay: string;
+    /** Derived spend across every day, absent while no price rule is configured. */
+    cost?: QuotaCostView;
+    /** Derived spend for {@link QuotaUsageReport.today}, absent while unpriced. */
+    todayCost?: QuotaCostView;
+}
+/**
  * The whole folded usage view: rolling totals plus the per-day series the
  * monthly heatmap and its drilldown read.
  */
@@ -283,6 +310,8 @@ export interface QuotaUsageReport {
      * `cacheRead / (cacheRead + input + cacheWrite)`. Absent with no input.
      */
     todayCacheHitPercent?: number;
+    /** Every route carrying usage, busiest first. */
+    providers: readonly QuotaProviderUsage[];
     /** Days carrying usage, ascending by date. Days with none are omitted. */
     days: readonly QuotaDayUsage[];
     /** Sessions carrying usage, most recently active first. */

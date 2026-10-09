@@ -33,6 +33,7 @@ kind: "package-reference"
 - **预算池** —— AgentRouter 账户在账户余额之外，为每个预算池给出一行，各含该池自己的剩余与额度。
 - **账号用量** —— 账户端点若自行公布用量表，卡片下方会按天、按模型或按预算池逐行列出。这份账是该次读取所用凭据自己的，因此同一条 provider 路由背后的两把 Key 各自报自己的数字——这正是本地折叠做不到的那个拆分：模型请求只带路由名，从不带服务它的那把 Key。
 - **Token 分析** —— 今日、本月与累计，各自拆分为输入、输出、缓存读取、缓存写入，并给出今日缓存命中占计费输入的比例。
+- **按供应商拆分** —— 同一份折叠计数还会按 provider 路由汇总：每条路由的 token 及其占全部 token 的比例、调用次数、涉及哪些模型、今日 token、缓存命中率、最近使用的日期与推算费用。路由是折叠能提供的最细身份——一次请求只给出 provider 与模型，从不给出凭据——因此同一条路由背后的两把 Key 仍合并为一行。
 - **推算开销** —— 一旦配置了 `pricing.rules`，每项总量、每天、每条路由行与每个会话都同时带上金额，并在旁边写明有多少次调用没有任何规则可定价。
 - **开销上限** —— `budgets.daily` 与 `budgets.monthly` 呈现为进度条，推算开销逼近上限时依次转为琥珀色与红色。
 - **每日日历** —— 当月按星期对齐的日历，每天一个带 token 数的着色格子，今天带描边；点选某天即展开该天的 `provider · model` 明细。
@@ -177,13 +178,14 @@ config:
 | [`src/adapters/`](src/adapters/) | 每类账户一个模块，外加 Sub2API 指纹与声明式读取器 |
 | [`src/pricing.ts`](src/pricing.ts) | 按路由与日期匹配规则，以及各口径共用的开销累加器 |
 | [`src/price-import.ts`](src/price-import.ts) | 从配置指定的文档读取价格规则（两种受支持格式） |
-| [`src/usage-fold.ts`](src/usage-fold.ts) | 把会话事件纯函数式折叠为按天、按路由的计数 |
+| [`src/usage-fold.ts`](src/usage-fold.ts) | 把会话事件纯函数式折叠为按天、按路由的计数，并汇总出按供应商的视图 |
 | [`src/usage-store.ts`](src/usage-store.ts) | 折叠轮次：读取会话、缓存折叠结果、组装报告 |
 | [`src/usage-domain.ts`](src/usage-domain.ts) | `quota_usage` 存储域，每个会话一条折叠记录 |
 | [`src/export.ts`](src/export.ts) | 面板下载的两份 CSV 文档与 JSON 报告 |
 | [`src/types.ts`](src/types.ts) | 两个半边共享的账户、用量与快照类型 |
 | [`src/client/index.ts`](src/client/index.ts) | 浏览器挂载、词典注册与两处 slot 注册 |
-| [`src/client/UsagePanel.tsx`](src/client/UsagePanel.tsx) | 面板根组件：数据加载与六个区块 |
+| [`src/client/UsagePanel.tsx`](src/client/UsagePanel.tsx) | 面板根组件：数据加载与七个区块 |
+| [`src/client/ProviderUsage.tsx`](src/client/ProviderUsage.tsx) | 按供应商的 token 拆分，以及每条路由占全部 token 的比例 |
 
 ### 一次账户读取如何解析
 

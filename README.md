@@ -33,6 +33,7 @@ Mount this plugin when an operator wants spend and remaining allowance beside th
 - **Budget pools** — an AgentRouter account reports its account remainder plus one row per budget pool, each with the pool's own remainder and allowance.
 - **Account usage** — an endpoint that publishes its own usage tables shows them under the card, one row per day, per model, or per budget pool. That ledger belongs to the credential the read was made with, so two keys behind one provider route each state their own totals — the split the local fold cannot make, because a model request names a route and never the key that served it.
 - **Token analytics** — today, this month, and all time, each split into input, output, cache-read, and cache-write, plus today's cache-hit share of billed input.
+- **Per-provider breakdown** — the same folded counters are also rolled up per provider route: each route's tokens with its share of every folded token, its calls, the models it served, today's tokens, its cache-hit share, the day it last ran, and its derived spend. The route is the finest identity the fold carries — a request names a provider and a model, never the credential — so two keys behind one route still read as one row.
 - **Derived spend** — every total, day, route row, and session also carries an amount once `pricing.rules` is configured, with the number of calls no rule priced stated beside it.
 - **Spend ceilings** — `budgets.daily` and `budgets.monthly` become bars that turn amber and then red as derived spend approaches them.
 - **Daily calendar** — the current month as a weekday-aligned calendar, one shaded cell per day with its token count, today outlined; selecting a day opens its `provider · model` breakdown.
@@ -177,13 +178,14 @@ The two halves share one wire vocabulary: the browser half never reads provider 
 | [`src/adapters/`](src/adapters/) | One module per account family, the Sub2API fingerprint, and the declarative reader |
 | [`src/pricing.ts`](src/pricing.ts) | Rule matching by route and day, and the cost accumulator every scope shares |
 | [`src/price-import.ts`](src/price-import.ts) | Reading price rules from a configured document, in either understood format |
-| [`src/usage-fold.ts`](src/usage-fold.ts) | Pure folding of session events into per-day, per-route counters |
+| [`src/usage-fold.ts`](src/usage-fold.ts) | Pure folding of session events into per-day, per-route counters, including the per-provider rollup |
 | [`src/usage-store.ts`](src/usage-store.ts) | The fold round: reading sessions, caching folds, assembling the report |
 | [`src/usage-domain.ts`](src/usage-domain.ts) | The `quota_usage` storage domain holding one fold record per session |
 | [`src/export.ts`](src/export.ts) | The two CSV documents and the JSON report the panel downloads |
 | [`src/types.ts`](src/types.ts) | The account, usage, and snapshot types shared by both halves |
 | [`src/client/index.ts`](src/client/index.ts) | The browser mount, the dictionary registration, and the two slot registrations |
-| [`src/client/UsagePanel.tsx`](src/client/UsagePanel.tsx) | The panel root: data loading and the six sections |
+| [`src/client/UsagePanel.tsx`](src/client/UsagePanel.tsx) | The panel root: data loading and the seven sections |
+| [`src/client/ProviderUsage.tsx`](src/client/ProviderUsage.tsx) | The per-provider token breakdown and each route's share of all tokens |
 
 ### How an account read resolves
 

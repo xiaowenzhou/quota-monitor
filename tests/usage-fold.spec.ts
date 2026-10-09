@@ -230,8 +230,52 @@ describe('buildUsageReport', () => {
   /** A price table charging round numbers, so an expected cost stays readable. */
   const prices: QuotaPriceTable = {
     currency: 'USD',
+    fuzzyMatch: false,
     rules: [{ model: 'chat', inputPerMillion: 1, outputPerMillion: 2 }],
   }
+
+  it('breaks the totals down per provider route', () => {
+    const now = at(2026, 3, 15)
+    const report = buildUsageReport([
+      entry('s1', {
+        '2026-03-15': {
+          'deepseek\u0000chat': counts(2, 100, 50, 30, 10),
+          'ktc-claude\u0000claude-opus-5': counts(1, 10, 5),
+        },
+        '2026-03-14': { 'ktc-claude\u0000claude-opus-5': counts(3, 300, 100, 100) },
+      }),
+    ], { now, foldedAt: now, folding: false, prices })
+
+    expect(report.providers).toHaveLength(2)
+    // Every route's tokens add up to the all-time total the same pass produced.
+    expect(report.providers.reduce((sum, row) => sum + row.totalTokens, 0)).toBe(report.allTimeTotals.totalTokens)
+
+    const [busy, quiet] = report.providers
+    expect(busy).toMatchObject({
+      provider: 'ktc-claude',
+      calls: 4,
+      totalTokens: 515,
+      todayCalls: 1,
+      todayTokens: 15,
+      models: 1,
+      lastDay: '2026-03-15',
+      cacheHitPercent: 24.4,
+    })
+    expect(quiet).toMatchObject({
+      provider: 'deepseek',
+      calls: 2,
+      totalTokens: 190,
+      todayCalls: 2,
+      todayTokens: 190,
+      models: 1,
+      lastDay: '2026-03-15',
+      cacheHitPercent: 21.4,
+    })
+    // The route a rule prices carries its own amount; the route no rule covers
+    // reports zero with the calls it could not price, never a charged zero.
+    expect(quiet?.cost).toEqual({ amount: 0.00024, currency: 'USD', unpricedCalls: 0 })
+    expect(busy?.cost).toEqual({ amount: 0, currency: 'USD', unpricedCalls: 4 })
+  })
 
   it('splits totals into today, this month, and all time', () => {
     const now = at(2026, 3, 15)
