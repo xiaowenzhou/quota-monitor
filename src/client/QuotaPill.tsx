@@ -3,18 +3,24 @@
  * and the reading behind it once the reader asks for more.
  *
  * The pill states the two tightest plan windows, or a wallet's remainder, and
- * opens a panel with the whole reading: every window with its reset countdown
- * and disclosed remainder, the balance, the budget pools, and the usage the
- * endpoint itself reported for this credential. It renders nothing when that
- * route's provider publishes no account endpoint — a control that always showed
- * something would be noise — and it stands down when another plugin's own
- * allowance chip already speaks for that exact route (see
+ * clicking it floats the whole reading above the composer: every window with
+ * its reset countdown and disclosed remainder, the balance, the budget pools,
+ * and the usage the endpoint itself reported for this credential. It renders
+ * nothing when that route's provider publishes no account endpoint — a control
+ * that always showed something would be noise — and it stands down when another
+ * plugin's own allowance chip already speaks for that exact route (see
  * {@link rivalStatesRoute}).
  *
  * That decision belongs here rather than at registration: a rival registers its
  * entry unconditionally and renders nothing unless the selected route is its
  * own, so the seat is occupied even while the rival says nothing — and this pill
  * is the only one that would fill that silence.
+ *
+ * The reading is placed by the stylesheet alone — `.panel` is absolutely
+ * positioned inside the relatively-positioned pill, which is how
+ * `dsh-cline-pass` anchors its own card — so nothing is measured, portaled, or
+ * clamped at runtime, and the popup cannot drift away from the control that
+ * opened it.
  *
  * The route comes from the session's own `modelSelection` projection, so the
  * pill follows the model the next request will use rather than the account
@@ -26,7 +32,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the ui-conversation SlotMap merge declaring this seat.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { MenuSurface, useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QuotaAccount, QuotaGatewayUsage, QuotaPlanWindow } from '../types.ts'
 import type { QuotaMonitorApi, QuotaTranslate } from './UsagePanel.tsx'
 import { fmtAmount, fmtNumber, fmtPercent, fmtTime, fmtTokens, resetLabel } from './format.ts'
@@ -155,18 +161,12 @@ export function QuotaPill({ t, quota, rivals, useProjection }: QuotaPillProps) {
   const [reading, setReading] = useState(false)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLSpanElement>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
-  // The composer sits on the window's bottom edge, so the panel opens upward.
-  const position = useAnchoredPosition({
-    open,
-    anchorRef: rootRef,
-    panelRef,
-    side: 'top',
-    align: 'start',
-    gap: 8,
-    margin: 12,
-  })
-  useDismissOnOutsidePointer(rootRef, open, setOpen, panelRef)
+  // The reading hangs off the pill itself — `.panel` is absolutely positioned
+  // inside this relatively-positioned root — so opening it needs no measuring,
+  // no portal, and no clamp: the stylesheet both places it and keeps it with
+  // the control. The root still contains the panel, so an outside pointer is
+  // the only thing that dismisses it.
+  useDismissOnOutsidePointer(rootRef, open, setOpen)
 
   const read = useCallback(async (id: string, refresh: boolean) => {
     setReading(true)
@@ -235,17 +235,10 @@ export function QuotaPill({ t, quota, rivals, useProjection }: QuotaPillProps) {
         : null}
     </button>
 
-    {!open ? null : <MenuSurface
-      ref={panelRef}
+    {!open ? null : <div
       role="dialog"
       aria-label={t('pill.details', { provider: account.name })}
       className={css.panel}
-      style={{
-        ...position ?? {},
-        // Placed by layout effect on the first frame; hidden until then so it
-        // never paints at the viewport origin.
-        visibility: position === null ? 'hidden' : 'visible',
-      }}
     >
       <div className={css.panelHead}>
         <span className={css.panelName}>{account.name}</span>
@@ -318,6 +311,6 @@ export function QuotaPill({ t, quota, rivals, useProjection }: QuotaPillProps) {
         {' · '}
         {t('account.source', { adapter: account.adapter })}
       </p>
-    </MenuSurface>}
+    </div>}
   </span>
 }

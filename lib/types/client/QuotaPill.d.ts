@@ -3,18 +3,24 @@
  * and the reading behind it once the reader asks for more.
  *
  * The pill states the two tightest plan windows, or a wallet's remainder, and
- * opens a panel with the whole reading: every window with its reset countdown
- * and disclosed remainder, the balance, the budget pools, and the usage the
- * endpoint itself reported for this credential. It renders nothing when that
- * route's provider publishes no account endpoint — a control that always showed
- * something would be noise — and it stands down when another plugin's own
- * allowance chip already speaks for that exact route (see
+ * clicking it floats the whole reading above the composer: every window with
+ * its reset countdown and disclosed remainder, the balance, the budget pools,
+ * and the usage the endpoint itself reported for this credential. It renders
+ * nothing when that route's provider publishes no account endpoint — a control
+ * that always showed something would be noise — and it stands down when another
+ * plugin's own allowance chip already speaks for that exact route (see
  * {@link rivalStatesRoute}).
  *
  * That decision belongs here rather than at registration: a rival registers its
  * entry unconditionally and renders nothing unless the selected route is its
  * own, so the seat is occupied even while the rival says nothing — and this pill
  * is the only one that would fill that silence.
+ *
+ * The reading is placed by the stylesheet alone — `.panel` is absolutely
+ * positioned inside the relatively-positioned pill, which is how
+ * `dsh-cline-pass` anchors its own card — so nothing is measured, portaled, or
+ * clamped at runtime, and the popup cannot drift away from the control that
+ * opened it.
  *
  * The route comes from the session's own `modelSelection` projection, so the
  * pill follows the model the next request will use rather than the account

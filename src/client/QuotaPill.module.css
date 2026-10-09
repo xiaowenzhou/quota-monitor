@@ -81,16 +81,33 @@
   border-left: 0.5px solid var(--dsw-alias-border-l2);
 }
 
-/* The reading behind the pill */
+/* The reading behind the pill: a floating card, placed by this rule alone.
+   It hangs off the pill's own right edge and opens upward, because the composer
+   sits on the window's bottom edge — the same stylesheet-anchored approach
+   `dsh-cline-pass` uses for its card, so nothing is measured at runtime and the
+   card cannot drift from its trigger. The scroll lives on the card rather than
+   on the column, so a long reading stays reachable while the composer stays put. */
 
 .panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  box-sizing: border-box;
   width: 300px;
+  max-width: calc(100vw - 24px);
   max-height: min(60vh, 420px);
   padding: 12px 14px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-specific-menu, var(--dsw-alias-bg-layer-1));
+  backdrop-filter: var(--dsw-menu-backdrop-filter);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 16%);
   font-size: 12px;
   line-height: 1.5;
 }
