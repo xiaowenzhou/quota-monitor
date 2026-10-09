@@ -219,7 +219,9 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
         t={t}
         providers={usage?.providers ?? []}
         names={providerNames}
-        totalTokens={usage?.allTimeTotals.totalTokens ?? 0}
+        allTimeTokens={usage?.allTimeTotals.totalTokens ?? 0}
+        todayTokens={usage?.todayTotals.totalTokens ?? 0}
+        monthTokens={usage?.monthTotals.totalTokens ?? 0}
       />
     </section>
 

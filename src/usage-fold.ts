@@ -49,17 +49,21 @@ interface DayAccumulator {
   models: Map<string, ModelAccumulator>
 }
 
+/** One scope's counters for a provider route: today, this month, or all time. */
+interface ProviderScope {
+  calls: number
+  totals: QuotaTokenTotals
+  cost: QuotaCostAccumulator
+}
+
 /** Mutable accumulator for one provider route across every folded day. */
 interface ProviderAccumulator {
   provider: string
-  calls: number
-  totals: QuotaTokenTotals
-  todayCalls: number
-  todayTokens: number
+  all: ProviderScope
+  today: ProviderScope
+  month: ProviderScope
   models: Set<string>
   lastDay: string
-  cost: QuotaCostAccumulator
-  todayCost: QuotaCostAccumulator
 }
 
 /**
@@ -71,15 +75,41 @@ interface ProviderAccumulator {
 function emptyProvider(provider: string, prices: QuotaPriceTable | undefined): ProviderAccumulator {
   return {
     provider,
-    calls: 0,
-    totals: emptyTotals(),
-    todayCalls: 0,
-    todayTokens: 0,
+    all: emptyScope(prices),
+    today: emptyScope(prices),
+    month: emptyScope(prices),
     models: new Set<string>(),
     lastDay: '',
-    cost: new QuotaCostAccumulator(prices),
-    todayCost: new QuotaCostAccumulator(prices),
   }
+}
+
+/**
+ * A zeroed scope.
+ * @param prices - the price table, or undefined to derive nothing.
+ * @returns the scope.
+ */
+function emptyScope(prices: QuotaPriceTable | undefined): ProviderScope {
+  return { calls: 0, totals: emptyTotals(), cost: new QuotaCostAccumulator(prices) }
+}
+
+/**
+ * Add one route-day's counters into a scope.
+ * @param scope - the scope to add into.
+ * @param provider - provider route key.
+ * @param model - model id.
+ * @param date - the day the counters belong to, deciding the rate that applies.
+ * @param counts - the folded counters.
+ */
+function addToScope(
+  scope: ProviderScope,
+  provider: string,
+  model: string,
+  date: string,
+  counts: QuotaFoldCounts,
+): void {
+  scope.calls += counts.calls
+  addCounts(scope.totals, counts)
+  scope.cost.add(provider, model, date, counts.calls, counts)
 }
 
 /**
@@ -197,6 +227,23 @@ export function foldSessionEvents(
     eventCount: events.length,
     days,
     ...lastActiveAt > 0 ? { lastActiveAt } : {},
+  }
+}
+
+/** The wire figures one scope contributes to a provider row. */
+function scopeFigures(scope: ProviderScope): {
+  calls: number
+  tokens: number
+  cacheHitPercent?: number
+  cost?: QuotaCostView
+} {
+  const cost = scope.cost.view()
+  const hitPercent = cacheHitPercent(scope.totals)
+  return {
+    calls: scope.calls,
+    tokens: scope.totals.totalTokens,
+    ...hitPercent === undefined ? {} : { cacheHitPercent: hitPercent },
+    ...cost === undefined ? {} : { cost },
   }
 }
 
@@ -374,17 +421,12 @@ export function buildUsageReport(
       // totals down by; one pass, so the two never disagree.
       const provider = byProvider.get(row.provider) ?? emptyProvider(row.provider, prices)
       byProvider.set(row.provider, provider)
-      addCounts(provider.totals, counts)
-      provider.calls += row.calls
+      addToScope(provider.all, row.provider, row.model, day.date, counts)
       provider.models.add(row.model)
-      provider.cost.add(row.provider, row.model, day.date, row.calls, counts)
       if (day.date > provider.lastDay) provider.lastDay = day.date
-      if (day.date === today) {
-        const tokens = counts.inputTokens + counts.outputTokens
-          + counts.cacheReadTokens + counts.cacheWriteTokens
-        provider.todayCalls += row.calls
-        provider.todayTokens += tokens
-        provider.todayCost.add(row.provider, row.model, day.date, row.calls, counts)
+      if (day.date === today) addToScope(provider.today, row.provider, row.model, day.date, counts)
+      if (day.date.startsWith(monthPrefix)) {
+        addToScope(provider.month, row.provider, row.model, day.date, counts)
       }
 
       models.push({
@@ -413,20 +455,25 @@ export function buildUsageReport(
   sessions.sort((left, right) => right.lastActiveAt - left.lastActiveAt || right.totalTokens - left.totalTokens)
   const providers: QuotaProviderUsage[] = []
   for (const entry of byProvider.values()) {
-    const cost = entry.cost.view()
-    const todayProviderCost = entry.todayCost.view()
-    const hitPercent = cacheHitPercent(entry.totals)
+    const all = scopeFigures(entry.all)
+    const todayFigures = scopeFigures(entry.today)
+    const monthFigures = scopeFigures(entry.month)
     providers.push({
       provider: entry.provider,
-      calls: entry.calls,
-      ...entry.totals,
-      todayCalls: entry.todayCalls,
-      todayTokens: entry.todayTokens,
+      calls: all.calls,
+      ...entry.all.totals,
+      ...all.cacheHitPercent === undefined ? {} : { cacheHitPercent: all.cacheHitPercent },
+      ...all.cost === undefined ? {} : { cost: all.cost },
+      todayCalls: todayFigures.calls,
+      todayTokens: todayFigures.tokens,
+      ...todayFigures.cacheHitPercent === undefined ? {} : { todayCacheHitPercent: todayFigures.cacheHitPercent },
+      ...todayFigures.cost === undefined ? {} : { todayCost: todayFigures.cost },
+      monthCalls: monthFigures.calls,
+      monthTokens: monthFigures.tokens,
+      ...monthFigures.cacheHitPercent === undefined ? {} : { monthCacheHitPercent: monthFigures.cacheHitPercent },
+      ...monthFigures.cost === undefined ? {} : { monthCost: monthFigures.cost },
       models: entry.models.size,
       lastDay: entry.lastDay,
-      ...hitPercent === undefined ? {} : { cacheHitPercent: hitPercent },
-      ...cost === undefined ? {} : { cost },
-      ...todayProviderCost === undefined ? {} : { todayCost: todayProviderCost },
     })
   }
   providers.sort((left, right) => right.totalTokens - left.totalTokens

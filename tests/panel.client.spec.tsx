@@ -123,11 +123,16 @@ const USAGE: QuotaUsageReport = {
     ...TOTALS,
     todayCalls: 12,
     todayTokens: TOTALS.totalTokens,
+    todayCacheHitPercent: 64.5,
+    monthCalls: 12,
+    monthTokens: TOTALS.totalTokens,
+    monthCacheHitPercent: 64.5,
     cacheHitPercent: 64.5,
     models: 1,
     lastDay: '2026-03-15',
     cost: { amount: 30, currency: 'CNY', unpricedCalls: 2 },
     todayCost: { amount: 1.25, currency: 'CNY', unpricedCalls: 0 },
+    monthCost: { amount: 9, currency: 'CNY', unpricedCalls: 2 },
   }],
   days: [{
     date: '2026-03-15',
@@ -231,9 +236,11 @@ describe('quota monitor usage panel', () => {
     expect(screen.getByText('deepseek · deepseek-chat')).toBeTruthy()
   })
 
-  it('breaks the token totals down by provider route', async () => {
+  it('breaks the token totals down by provider route and range', async () => {
     const usage: QuotaUsageReport = {
       ...USAGE,
+      todayTotals: { ...TOTALS, totalTokens: 400 },
+      monthTotals: { ...TOTALS, totalTokens: 800 },
       providers: [
         {
           provider: 'deepseek',
@@ -243,12 +250,18 @@ describe('quota monitor usage panel', () => {
           cacheReadTokens: 100,
           cacheWriteTokens: 0,
           totalTokens: 600,
+          cacheHitPercent: 30,
+          cost: { amount: 4.5, currency: 'USD', unpricedCalls: 1 },
           todayCalls: 5,
           todayTokens: 120,
-          cacheHitPercent: 25,
+          todayCacheHitPercent: 40,
+          todayCost: { amount: 1.25, currency: 'USD', unpricedCalls: 0 },
+          monthCalls: 30,
+          monthTokens: 500,
+          monthCacheHitPercent: 25,
+          monthCost: { amount: 4, currency: 'USD', unpricedCalls: 1 },
           models: 3,
           lastDay: '2026-03-15',
-          cost: { amount: 4.5, currency: 'USD', unpricedCalls: 1 },
         },
         {
           provider: 'pro',
@@ -258,8 +271,13 @@ describe('quota monitor usage panel', () => {
           cacheReadTokens: 200,
           cacheWriteTokens: 0,
           totalTokens: 400,
-          todayCalls: 0,
-          todayTokens: 0,
+          cacheHitPercent: 50,
+          todayCalls: 20,
+          todayTokens: 300,
+          todayCacheHitPercent: 55,
+          monthCalls: 8,
+          monthTokens: 300,
+          monthCacheHitPercent: 60,
           models: 2,
           lastDay: '2026-03-14',
         },
@@ -269,26 +287,38 @@ describe('quota monitor usage panel', () => {
     render(<UsagePanel {...props(api({ getUsage: () => Promise.resolve(ok(usage)) }))} />)
 
     const heading = await screen.findByText('Usage by provider')
-    const section = heading.closest('section')
+    const section = heading.closest('section') as HTMLElement
     expect(section).toBeTruthy()
-    const rows = within(section as HTMLElement)
+    const rows = within(section)
 
     // The route the snapshot names is labelled with its name and its key; a
     // route the snapshot does not know falls back to the key alone.
     expect(rows.getByText('DeepSeek')).toBeTruthy()
     expect(rows.getByText('deepseek')).toBeTruthy()
     expect(rows.getByText('pro')).toBeTruthy()
-    // Each row states its own tokens and its share of every folded token.
-    expect(rows.getByText('600')).toBeTruthy()
+
+    // This month is the range a deployment watches day to day, so it leads.
+    expect(rows.getByText('500')).toBeTruthy()
+    expect(rows.getByText('62.5% of this month')).toBeTruthy()
+    expect(rows.getByText('300')).toBeTruthy()
+    expect(rows.getByText('37.5% of this month')).toBeTruthy()
+    expect(rows.getByText('30 calls · 3 models · Cache hit 25.0% · Last 2026-03-15')).toBeTruthy()
+    expect(rows.getByText('4 USD')).toBeTruthy()
+
+    // All time restates the same routes over every folded day.
+    fireEvent.click(rows.getByRole('button', { name: 'All time' }))
+    expect(await rows.findByText('600')).toBeTruthy()
     expect(rows.getByText('60.0% of all tokens')).toBeTruthy()
-    expect(rows.getByText('400')).toBeTruthy()
-    expect(rows.getByText('40.0% of all tokens')).toBeTruthy()
-    // Calls, model count, today's tokens, cache share, and last day are per route.
-    expect(rows.getByText('40 calls · 3 models · Today 120 · Cache hit 25.0% · Last 2026-03-15')).toBeTruthy()
-    expect(rows.getByText('10 calls · 2 models · Today 0 · Last 2026-03-14')).toBeTruthy()
-    // Only the priced route states an amount.
     expect(rows.getByText('4.5 USD')).toBeTruthy()
-    expect(rows.queryByText(/ CNY$/u)).toBeNull()
+
+    // Today re-scopes the figures and re-orders them: pro spent more of today.
+    fireEvent.click(rows.getByRole('button', { name: 'Today' }))
+    expect(await rows.findByText('75.0% of today')).toBeTruthy()
+    expect(rows.getByText('30.0% of today')).toBeTruthy()
+    expect(rows.getByText('5 calls · 3 models · Cache hit 40.0% · Last 2026-03-15')).toBeTruthy()
+    expect(rows.getByText('1.25 USD')).toBeTruthy()
+    const text = section.textContent ?? ''
+    expect(text.indexOf('pro')).toBeLessThan(text.indexOf('DeepSeek'))
   })
 
   it('shows the usage the gateway reported for the account credential', async () => {

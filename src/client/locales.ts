@@ -97,9 +97,10 @@ export const zh = {
 
   'provider.heading': '按供应商统计',
   'provider.empty': '暂无按供应商的用量',
-  'provider.share': '占累计 {percent}',
+  'provider.share.today': '占今日 {percent}',
+  'provider.share.month': '占本月 {percent}',
+  'provider.share.allTime': '占累计 {percent}',
   'provider.meta': '{calls} 次调用 · {models} 个模型',
-  'provider.today': '今日 {tokens}',
   'provider.cache': '缓存命中 {percent}',
   'provider.lastDay': '最近 {date}',
 
@@ -241,9 +242,10 @@ export const en = {
 
   'provider.heading': 'Usage by provider',
   'provider.empty': 'No per-provider usage yet',
-  'provider.share': '{percent} of all tokens',
+  'provider.share.today': '{percent} of today',
+  'provider.share.month': '{percent} of this month',
+  'provider.share.allTime': '{percent} of all tokens',
   'provider.meta': '{calls} calls · {models} models',
-  'provider.today': 'Today {tokens}',
   'provider.cache': 'Cache hit {percent}',
   'provider.lastDay': 'Last {date}',
 

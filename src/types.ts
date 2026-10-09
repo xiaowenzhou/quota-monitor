@@ -292,7 +292,8 @@ export interface QuotaBudgetView {
 }
 
 /**
- * One provider route's folded tokens across every day the fold has read.
+ * One provider route's folded tokens across every day the fold has read, with
+ * the three scopes the panel switches between.
  *
  * The route key is the finest identity the folded log carries: a request names
  * a provider and a model, never the credential that served it, so two keys
@@ -303,20 +304,30 @@ export interface QuotaProviderUsage extends QuotaTokenTotals {
   readonly provider: string
   /** Calls folded across every day for this route. */
   calls: number
+  /** Cache-hit share of this route's billed input, 0–100; absent with no input. */
+  cacheHitPercent?: number
+  /** Derived spend across every day, absent while no price rule is configured. */
+  cost?: QuotaCostView
   /** Calls folded for {@link QuotaUsageReport.today} on this route. */
   todayCalls: number
   /** Tokens folded for {@link QuotaUsageReport.today} on this route. */
   todayTokens: number
-  /** Cache-hit share of this route's billed input, 0–100; absent with no input. */
-  cacheHitPercent?: number
+  /** Today's cache-hit share of this route's billed input; absent with no input. */
+  todayCacheHitPercent?: number
+  /** Derived spend for {@link QuotaUsageReport.today}, absent while unpriced. */
+  todayCost?: QuotaCostView
+  /** Calls folded for the local calendar month containing today. */
+  monthCalls: number
+  /** Tokens folded for that month. */
+  monthTokens: number
+  /** That month's cache-hit share of this route's billed input; absent with no input. */
+  monthCacheHitPercent?: number
+  /** Derived spend for that month, absent while no price rule is configured. */
+  monthCost?: QuotaCostView
   /** Distinct models folded into this route. */
   models: number
   /** Latest local calendar day carrying usage for this route, `YYYY-MM-DD`. */
   lastDay: string
-  /** Derived spend across every day, absent while no price rule is configured. */
-  cost?: QuotaCostView
-  /** Derived spend for {@link QuotaUsageReport.today}, absent while unpriced. */
-  todayCost?: QuotaCostView
 }
 
 /**
