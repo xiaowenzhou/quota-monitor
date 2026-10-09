@@ -1,10 +1,15 @@
 /**
- * Composer pill styling: one compact chip on the composer's tool row, beside
- * the model selector it describes.
+ * Composer pill styling: one compact chip on the composer's tool row, and the
+ * reading it opens on demand.
  *
  * Every colour comes from a `--dsw-alias-*` design token, so the pill follows
  * the platform's themes like the rest of the composer chrome.
  */
+
+.root {
+  position: relative;
+  display: inline-flex;
+}
 
 .pill {
   display: inline-flex;
@@ -25,7 +30,8 @@
   cursor: pointer;
 }
 
-.pill:hover {
+.pill:hover,
+.pill[aria-expanded='true'] {
   border-color: var(--dsw-alias-border-l1);
   color: var(--dsw-alias-label-primary);
 }
@@ -73,4 +79,163 @@
 .name + .figure {
   padding-left: 6px;
   border-left: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+/* The reading behind the pill */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 300px;
+  max-height: min(60vh, 420px);
+  padding: 12px 14px;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.panelHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.panelName {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.panelPlan {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panelAction {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.panelAction:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-border-l1);
+}
+
+.panelAction:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.panelHeading {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.detailRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detailHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.detailValue {
+  font-variant-numeric: tabular-nums;
+}
+
+.detailMeta {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.detailList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.detailPair {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.detailPair dt,
+.detailPair dd {
+  margin: 0;
+}
+
+.detailPair dd {
+  font-variant-numeric: tabular-nums;
+}
+
+.bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.barFill.warning {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.barFill.critical {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.gatewayGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gatewayRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gatewayLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gatewayValue {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.panelMeta {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
 }

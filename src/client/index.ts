@@ -26,6 +26,7 @@ import quotaMonitorRemote from '@deepseek-ai/dsh-extension-quota-monitor/remote'
 import { UsagePanel, type UsagePanelInjected } from './UsagePanel.tsx'
 import { QuotaPill, type QuotaPillInjected } from './QuotaPill.tsx'
 import { UsageIcon } from './UsageIcon.tsx'
+import { siblingStatesAllowance } from './yield.ts'
 import { en, NS, zh } from './locales.ts'
 
 /** Sidebar entry id, and the `main` key it addresses. */
@@ -80,12 +81,38 @@ export async function apply(ctx: ClientContext): Promise<void> {
     // The composer's own seat, so the selected model's allowance sits beside the
     // selector that chose it. The entry reads the session's model selection
     // through the standard projection seat rather than another plugin's state.
-    scope.slots.inject('conversation.input.right', () => scope.slots.register({
-      name: 'conversation.input.right',
-      id: PILL_ID,
-      order: 90,
-      locale: NS,
-      inject: (): QuotaPillInjected => ({ quota: scope.remote.quotaMonitor }),
-    }, QuotaPill))
+    //
+    // The seat is a list another plugin may already occupy with its own
+    // allowance chip — `dsh-cline-pass` publishes `cline-pass-usage` — so the
+    // entry is registered only while no sibling states one, and the seat is
+    // watched rather than sampled once, because that plugin may load after this
+    // one.
+    scope.slots.inject('conversation.input.right', () => {
+      let entry: (() => void) | undefined
+      const sync = (): void => {
+        const rivals = scope.slots
+          .entriesOfSlot('conversation.input.right')
+          .map(candidate => candidate.options.id)
+        if (siblingStatesAllowance(rivals, PILL_ID)) {
+          entry?.()
+          entry = undefined
+          return
+        }
+        entry ??= scope.slots.register({
+          name: 'conversation.input.right',
+          id: PILL_ID,
+          order: 90,
+          locale: NS,
+          inject: (): QuotaPillInjected => ({ quota: scope.remote.quotaMonitor }),
+        }, QuotaPill)
+      }
+      sync()
+      const stop = scope.slots.subscribe('conversation.input.right', sync)
+      return () => {
+        stop()
+        entry?.()
+        entry = undefined
+      }
+    })
   })
 }

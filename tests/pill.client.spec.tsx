@@ -6,12 +6,13 @@
  * Every case drives the pill through the same two seams its registration gives
  * it: the session's `modelSelection` projection (which route the next request
  * uses) and the `quotaMonitor` Remote face (what that route's endpoint says).
- * The pill derives no figure of its own, and a route with nothing readable must
- * render nothing rather than an empty control.
+ * The pill derives no figure of its own, states the two tightest windows at
+ * rest, opens the whole reading on click, and renders nothing when the route
+ * publishes no account at all.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { makeTranslate, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/index.ts'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
@@ -48,13 +49,13 @@ const SUBSCRIPTION: QuotaAccount = {
   fetchedAt: Date.parse('2026-10-09T09:00:00Z'),
   plan: 'Cline Pass',
   planWindows: [
-    { kind: 'weekly', percentUsed: 38, resetAt: '2026-10-12T00:00:00Z' },
-    { kind: 'five-hour', percentUsed: 62, resetAt: '2026-10-09T12:00:00Z' },
+    { kind: 'weekly', percentUsed: 38, resetAt: '2099-10-12T00:00:00Z' },
+    { kind: 'five-hour', percentUsed: 62, resetAt: '2099-10-09T12:00:00Z', remaining: 380 },
   ],
 }
 
-/** A wallet reading. */
-const BALANCE: QuotaAccount = {
+/** A wallet reading that also reports a pool and the gateway's own tables. */
+const WALLET: QuotaAccount = {
   id: 'ktc-claude',
   name: 'KTC',
   mode: 'balance',
@@ -62,8 +63,15 @@ const BALANCE: QuotaAccount = {
   adapter: 'sub2api',
   fetchedAt: Date.parse('2026-10-09T09:00:00Z'),
   remaining: 495.38933175,
+  used: 4.61,
+  limit: 500,
   currency: 'USD',
   warning: 'normal',
+  budgetPools: [{ name: 'team-b', remaining: 12.5, limit: 20 }],
+  usage: [
+    { kind: 'day', label: '2026-09-29', requests: 12, totalTokens: 1_629_770, cost: 4.61, currency: 'USD' },
+    { kind: 'model', label: 'claude-opus-5', requests: 12, totalTokens: 1_629_770 },
+  ],
 }
 
 /** A route whose endpoint publishes no account. */
@@ -100,39 +108,94 @@ function props(quota: QuotaMonitorApi, provider: string | undefined): QuotaPillP
   } as unknown as QuotaPillProps
 }
 
+/**
+ * Render the pill and open the reading it holds.
+ * @param account - the reading its route answers with.
+ * @param provider - the route the session selected.
+ * @returns the opened dialog.
+ */
+async function opened(account: QuotaAccount, provider: string) {
+  render(<QuotaPill {...props(api(account), provider)} />)
+  fireEvent.click(await screen.findByRole('button', { name: `${account.name} allowance` }))
+  return screen.findByRole('dialog', { name: `${account.name} allowance and usage` })
+}
+
 describe('quota pill', () => {
   it('states the selected subscription\'s tightest windows, tightest first', async () => {
     render(<QuotaPill {...props(api(SUBSCRIPTION), 'cline-pass')} />)
 
     expect(await screen.findByText('Cline Pass')).toBeTruthy()
-    // Only the two most spent windows take the tool row's width, tightest first.
     const windows = screen.getAllByText(/^(5 hours|This week) /u).map(node => node.textContent)
     expect(windows).toEqual(['5 hours 62.0%', 'This week 38.0%'])
-    // The tooltip carries every window with its reset, and the reading's origin.
-    const button = screen.getByRole('button', { name: 'Cline Pass allowance' })
-    expect(button.getAttribute('title')).toContain('Cline Pass · Cline Pass')
-    expect(button.getAttribute('title')).toContain('5 hours 62.0%')
-    expect(button.getAttribute('title')).toContain('cline-plan')
+    const trigger = screen.getByRole('button', { name: 'Cline Pass allowance' })
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('states a wallet remainder when the route publishes one', async () => {
-    render(<QuotaPill {...props(api(BALANCE), 'ktc-claude')} />)
+    render(<QuotaPill {...props(api(WALLET), 'ktc-claude')} />)
 
     expect(await screen.findByText('KTC')).toBeTruthy()
     expect(screen.getByText('495.39 USD')).toBeTruthy()
   })
 
+  it('opens every window the reading carries, with what resets each', async () => {
+    const dialog = await opened(SUBSCRIPTION, 'cline-pass')
+    const reading = within(dialog)
+
+    // Both windows, not only the two the pill states, and the disclosed remainder.
+    expect(reading.getByText('5 hours')).toBeTruthy()
+    expect(reading.getByText('This week')).toBeTruthy()
+    expect(reading.getByText(/380 left/u)).toBeTruthy()
+    // The reading's own origin, so a figure is never anonymous.
+    expect(reading.getByText(/cline-plan/u)).toBeTruthy()
+  })
+
+  it('opens the balance, the pool, and the gateway\'s own usage tables', async () => {
+    const dialog = await opened(WALLET, 'ktc-claude')
+    const reading = within(dialog)
+
+    expect(reading.getByText('495.39 USD')).toBeTruthy()
+    expect(reading.getByText('4.61 USD')).toBeTruthy()
+    expect(reading.getByText('500 USD')).toBeTruthy()
+    expect(reading.getByText(/team-b/u)).toBeTruthy()
+    expect(reading.getByText('By day')).toBeTruthy()
+    expect(reading.getByText('2026-09-29')).toBeTruthy()
+    expect(reading.getByText('By model')).toBeTruthy()
+    expect(reading.getByText('claude-opus-5')).toBeTruthy()
+  })
+
+  it('forces a read from inside the reading', async () => {
+    const getAccount = vi.fn((request: { refresh?: boolean }) => Promise.resolve(ok(WALLET)))
+    render(<QuotaPill {...props({ ...api(WALLET), getAccount }, 'ktc-claude')} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'KTC allowance' }))
+    const refresh = await screen.findByRole('button', { name: 'Refresh' })
+    await waitFor(() => { expect(getAccount).toHaveBeenCalledTimes(1) })
+    fireEvent.click(refresh)
+
+    await waitFor(() => { expect(getAccount).toHaveBeenLastCalledWith({ provider: 'ktc-claude', refresh: true }) })
+  })
+
+  it('closes the reading on Escape', async () => {
+    await opened(SUBSCRIPTION, 'cline-pass')
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    // The pill itself stays, so the choice is still visible at rest.
+    expect(screen.getByRole('button', { name: 'Cline Pass allowance' })).toBeTruthy()
+  })
+
   it('renders nothing for a route whose endpoint publishes no account', async () => {
     render(<QuotaPill {...props(api(UNSUPPORTED), 'sensenova')} />)
 
-    // The read happened; there is simply nothing to put beside the model.
     await waitFor(() => { expect(screen.queryByText('sensenova')).toBeNull() })
     expect(screen.queryByRole('button')).toBeNull()
   })
 
   it('renders nothing, and reads nothing, before a selection exists', () => {
-    const getAccount = vi.fn(() => Promise.resolve(ok(BALANCE)))
-    render(<QuotaPill {...props({ ...api(BALANCE), getAccount }, undefined)} />)
+    const getAccount = vi.fn(() => Promise.resolve(ok(WALLET)))
+    render(<QuotaPill {...props({ ...api(WALLET), getAccount }, undefined)} />)
 
     expect(screen.queryByRole('button')).toBeNull()
     expect(getAccount).not.toHaveBeenCalled()
@@ -140,39 +203,29 @@ describe('quota pill', () => {
 
   it('follows the session\'s selection and never shows the previous route', async () => {
     const getAccount = vi.fn((request: { provider: string }) => Promise.resolve(ok(
-      request.provider === 'ktc-claude' ? BALANCE : SUBSCRIPTION,
+      request.provider === 'ktc-claude' ? WALLET : SUBSCRIPTION,
     )))
-    const { rerender } = render(<QuotaPill {...props({ ...api(BALANCE), getAccount }, 'ktc-claude')} />)
+    const { rerender } = render(<QuotaPill {...props({ ...api(WALLET), getAccount }, 'ktc-claude')} />)
     expect(await screen.findByText('495.39 USD')).toBeTruthy()
 
-    rerender(<QuotaPill {...props({ ...api(BALANCE), getAccount }, 'cline-pass')} />)
+    rerender(<QuotaPill {...props({ ...api(WALLET), getAccount }, 'cline-pass')} />)
 
-    // The new route's figures replace the old ones rather than sitting beside them.
     expect(await screen.findByText('5 hours 62.0%')).toBeTruthy()
     expect(screen.queryByText('495.39 USD')).toBeNull()
     expect(getAccount).toHaveBeenLastCalledWith({ provider: 'cline-pass', refresh: false })
   })
 
-  it('refreshes the reading when the pill is clicked', async () => {
-    const getAccount = vi.fn((request: { refresh?: boolean }) => Promise.resolve(ok(BALANCE)))
-    render(<QuotaPill {...props({ ...api(BALANCE), getAccount }, 'ktc-claude')} />)
-
-    const button = await screen.findByRole('button', { name: 'KTC allowance' })
-    await waitFor(() => { expect(getAccount).toHaveBeenCalledTimes(1) })
-    fireEvent.click(button)
-
-    await waitFor(() => { expect(getAccount).toHaveBeenLastCalledWith({ provider: 'ktc-claude', refresh: true }) })
-  })
-
   it('keeps the last good reading when a refresh fails', async () => {
     const getAccount = vi.fn()
-      .mockResolvedValueOnce(ok(BALANCE))
+      .mockResolvedValueOnce(ok(WALLET))
       .mockResolvedValue({ ok: false, error: new RemoteError('gateway/internal', 'unavailable', {}) })
-    render(<QuotaPill {...props({ ...api(BALANCE), getAccount }, 'ktc-claude')} />)
+    render(<QuotaPill {...props({ ...api(WALLET), getAccount }, 'ktc-claude')} />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'KTC allowance' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh' }))
 
     await waitFor(() => { expect(getAccount).toHaveBeenCalledTimes(2) })
-    expect(screen.getByText('495.39 USD')).toBeTruthy()
+    // The pill and the open reading both state it; the point is it survived.
+    expect(screen.getAllByText('495.39 USD').length).toBeGreaterThan(0)
   })
 })

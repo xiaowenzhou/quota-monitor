@@ -110,9 +110,9 @@ export const zh = {
   'provider.lastDay': '最近 {date}',
 
   'pill.label': '{provider} 额度',
+  'pill.details': '{provider} 的额度与用量',
   'pill.window': '{label} {percent}',
   'pill.unlimited': '不限量',
-  'pill.hint': '点击立即刷新',
 
   'budget.heading': '预算',
   'budget.daily': '今日预算',
@@ -265,9 +265,9 @@ export const en = {
   'provider.lastDay': 'Last {date}',
 
   'pill.label': '{provider} allowance',
+  'pill.details': '{provider} allowance and usage',
   'pill.window': '{label} {percent}',
   'pill.unlimited': 'Unlimited',
-  'pill.hint': 'Click to refresh now',
 
   'budget.heading': 'Budgets',
   'budget.daily': 'Daily budget',
