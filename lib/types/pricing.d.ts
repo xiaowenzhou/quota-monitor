@@ -37,6 +37,12 @@ export interface QuotaPriceTable {
     currency: string;
     /** Rules in configuration order; specificity, not order, decides a match. */
     rules: readonly QuotaPriceRule[];
+    /**
+     * Whether a model no exact or prefix pattern covers may be matched by its
+     * normalized id. A normalized hit is an inference about which catalog entry
+     * a route means, so a deployment opts in rather than getting it by default.
+     */
+    fuzzyMatch: boolean;
 }
 /** The four counters a rule prices. */
 export interface QuotaPricedCounts {
@@ -45,6 +51,17 @@ export interface QuotaPricedCounts {
     cacheReadTokens: number;
     cacheWriteTokens: number;
 }
+/**
+ * A model id reduced to the characters two spellings of it share.
+ *
+ * Vendors, catalogs, and routes punctuate the same model differently —
+ * `gpt5.6 luna (go)` and `gpt-5.6-luna` are one model. Bracketed notes are
+ * dropped before punctuation, because they qualify a deployment rather than
+ * name the model.
+ * @param model - the model id to reduce.
+ * @returns the comparable form.
+ */
+export declare function normalizeModel(model: string): string;
 /**
  * The rule that prices one route on one day.
  *

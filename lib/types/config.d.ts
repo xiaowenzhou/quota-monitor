@@ -48,12 +48,40 @@ export interface QuotaDetectionConfig {
      */
     enabled: boolean;
 }
+/**
+ * One price document to load rules from.
+ *
+ * Prices are still configuration rather than a shipped table, but a deployment
+ * that keeps a catalog of its own should not have to restate it inline: the
+ * file is re-read on every background round, so editing it takes effect without
+ * a restart. A rule written in `pricing.rules` always outranks an imported one.
+ */
+export interface QuotaPriceImport {
+    /** Absolute path of a JSON price document. */
+    path: string;
+    /**
+     * Unit the document's amounts are denominated in. Absent, the document must
+     * state one itself or define it through a format that carries it (the
+     * `providers` catalog is USD), and a unit differing from `pricing.currency`
+     * fails at load rather than mispricing every figure.
+     */
+    currency?: string;
+}
 /** Token prices a deployment states so the panel can derive spend. */
 export interface QuotaPricingConfig {
     /** Unit every rule and every derived amount is denominated in. */
     currency: string;
     /** The rules themselves; an empty list leaves every cost figure absent. */
     rules: QuotaPriceRule[];
+    /** Documents to load further rules from, re-read on every background round. */
+    imports: QuotaPriceImport[];
+    /**
+     * Whether a model with no exact match may fall back to a normalized
+     * comparison (case, spaces, hyphens, dots, and bracketed notes ignored). A
+     * deployment importing a vendor catalog usually wants this on; it stays off
+     * by default because a normalized hit is an inference, not a statement.
+     */
+    fuzzyMatch: boolean;
 }
 /**
  * Spend ceilings measured against derived cost.
@@ -91,6 +119,13 @@ export interface QuotaMonitorEntry {
      * loopback. Absent, no plaintext request is made.
      */
     allowPlaintextEndpoint?: boolean;
+    /**
+     * Exact hosts this route may send its credential to, as `host` or
+     * `host:port`, lowercased. Empty or absent leaves the route unfenced beyond
+     * the transport rule; naming hosts is how a deployment keeps a copied
+     * configuration from carrying its key to some other gateway.
+     */
+    allowedHosts?: string[];
     /** Remaining balance at or below which this provider is `warning`. */
     warningRemaining?: number;
     /** Remaining balance at or below which this provider is `critical`. */
@@ -140,11 +175,12 @@ export declare const Config: zs<QuotaMonitorConfigInput, QuotaMonitorConfig>;
 /**
  * Reject a configuration whose parts contradict each other.
  *
- * A ceiling is measured against derived spend, so a budget without a single
- * price rule could only ever report `unknown`; that is a configuration mistake
- * rather than a state worth rendering, and it fails here at load.
+ * A ceiling is measured against derived spend, so a budget with no price behind
+ * it — neither an inline rule nor an imported document — could only ever report
+ * `unknown`; that is a configuration mistake rather than a state worth
+ * rendering, and it fails here at load.
  * @param config - the validated plugin config.
- * @throws {Error} when a budget is configured with no price rule behind it.
+ * @throws {Error} when a budget is configured with no price behind it.
  */
 export declare function assertConsistent(config: QuotaMonitorConfig): void;
 /**

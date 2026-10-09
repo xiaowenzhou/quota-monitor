@@ -43,6 +43,12 @@ export interface QuotaPriceTable {
   currency: string
   /** Rules in configuration order; specificity, not order, decides a match. */
   rules: readonly QuotaPriceRule[]
+  /**
+   * Whether a model no exact or prefix pattern covers may be matched by its
+   * normalized id. A normalized hit is an inference about which catalog entry
+   * a route means, so a deployment opts in rather than getting it by default.
+   */
+  fuzzyMatch: boolean
 }
 
 /** The four counters a rule prices. */
@@ -58,6 +64,30 @@ function modelMatches(pattern: string | undefined, model: string): boolean {
   if (pattern === undefined) return true
   if (!pattern.endsWith('*')) return pattern === model
   return model.startsWith(pattern.slice(0, -1))
+}
+
+/**
+ * A model id reduced to the characters two spellings of it share.
+ *
+ * Vendors, catalogs, and routes punctuate the same model differently —
+ * `gpt5.6 luna (go)` and `gpt-5.6-luna` are one model. Bracketed notes are
+ * dropped before punctuation, because they qualify a deployment rather than
+ * name the model.
+ * @param model - the model id to reduce.
+ * @returns the comparable form.
+ */
+export function normalizeModel(model: string): string {
+  return model.toLowerCase().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]+/g, '')
+}
+
+/** The normalized counterpart of {@link modelMatches}. */
+function modelMatchesNormalized(pattern: string | undefined, model: string): boolean {
+  if (pattern === undefined) return true
+  const subject = normalizeModel(model)
+  if (subject === '') return false
+  if (!pattern.endsWith('*')) return normalizeModel(pattern) === subject
+  const prefix = normalizeModel(pattern.slice(0, -1))
+  return prefix !== '' && subject.startsWith(prefix)
 }
 
 /**
@@ -88,10 +118,30 @@ export function priceFor(
   model: string,
   day: string,
 ): QuotaPriceRule | undefined {
+  return selectRule(table, provider, model, day, modelMatches)
+    ?? (table.fuzzyMatch ? selectRule(table, provider, model, day, modelMatchesNormalized) : undefined)
+}
+
+/**
+ * The best rule under one model-comparison policy.
+ * @param table - the configured price table.
+ * @param provider - provider route key.
+ * @param model - model id.
+ * @param day - local calendar day the counters belong to.
+ * @param matches - how a rule's model pattern is compared.
+ * @returns the matching rule, or `undefined` when none covers the route.
+ */
+function selectRule(
+  table: QuotaPriceTable,
+  provider: string,
+  model: string,
+  day: string,
+  matches: (pattern: string | undefined, model: string) => boolean,
+): QuotaPriceRule | undefined {
   let best: QuotaPriceRule | undefined
   for (const rule of table.rules) {
     if (rule.provider !== undefined && rule.provider !== provider) continue
-    if (!modelMatches(rule.model, model)) continue
+    if (!matches(rule.model, model)) continue
     if (rule.from !== undefined && rule.from > day) continue
     if (best === undefined) {
       best = rule

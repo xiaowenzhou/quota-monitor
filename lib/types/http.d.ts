@@ -72,6 +72,13 @@ export interface QuotaRequestOptions {
      * credential travels over TLS or to loopback http only.
      */
     allowPlaintext?: boolean;
+    /**
+     * Exact hosts this request may address, as `host` or `host:port` lowercased.
+     * Empty or absent leaves the request unfenced beyond the transport rule; a
+     * named list is how a deployment keeps a copied configuration from carrying
+     * its credential to a gateway it never named.
+     */
+    allowedHosts?: readonly string[];
     /** Injected fetch, so tests drive adapters without network access. */
     fetchImpl?: typeof fetch;
 }

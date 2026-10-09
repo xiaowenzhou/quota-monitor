@@ -114,6 +114,11 @@ export interface QuotaAdapterContext {
    * not on this machine. Absent means the credential requires TLS.
    */
   allowPlaintext?: boolean
+  /**
+   * Exact hosts this route may address, from an explicit `monitors` entry.
+   * Empty or absent means the route is fenced only by the transport rule.
+   */
+  allowedHosts?: readonly string[]
   /** Current epoch milliseconds, injected so window math is testable. */
   now(): number
   /** Injected fetch, so tests drive adapters without network access. */
@@ -161,8 +166,8 @@ export async function requireKey(
  * Build request options that carry the provider's credential.
  * @param url - absolute endpoint.
  * @param apiKey - credential value.
- * @param context - the adapter context supplying the injected fetch and this
- * route's plaintext permission.
+ * @param context - the adapter context supplying the injected fetch, this
+ * route's plaintext permission, and its host fence.
  * @returns the request options.
  */
 export function bearer(url: string, apiKey: string, context: QuotaAdapterContext): QuotaRequestOptions {
@@ -171,6 +176,7 @@ export function bearer(url: string, apiKey: string, context: QuotaAdapterContext
     apiKey,
     auth: 'bearer',
     ...context.allowPlaintext === true ? { allowPlaintext: true } : {},
+    ...context.allowedHosts === undefined ? {} : { allowedHosts: context.allowedHosts },
     ...context.fetchImpl === undefined ? {} : { fetchImpl: context.fetchImpl },
   }
 }

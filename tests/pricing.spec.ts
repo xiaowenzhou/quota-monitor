@@ -10,7 +10,7 @@ import type { QuotaPriceRule, QuotaPriceTable } from '../src/pricing.ts'
 
 /** A table from rules stated in the order a cordis.yml would list them. */
 function table(...rules: QuotaPriceRule[]): QuotaPriceTable {
-  return { currency: 'USD', rules }
+  return { currency: 'USD', rules, fuzzyMatch: false }
 }
 
 /** One million of each counter, so a rate reads straight off the amount. */
@@ -57,6 +57,28 @@ describe('priceFor', () => {
     )
     expect(priceFor(rules, 'deepseek', 'chat', '2026-03-09')?.inputPerMillion).toBe(1)
     expect(priceFor(rules, 'deepseek', 'chat', '2026-03-10')?.inputPerMillion).toBe(4)
+  })
+
+  it('matches a differently punctuated model only when the deployment opts in', () => {
+    const rule: QuotaPriceRule = { model: 'gpt-5.6-luna', inputPerMillion: 1, outputPerMillion: 2 }
+    const exact: QuotaPriceTable = { currency: 'USD', rules: [rule], fuzzyMatch: false }
+    const fuzzy: QuotaPriceTable = { currency: 'USD', rules: [rule], fuzzyMatch: true }
+
+    expect(priceFor(exact, 'pro', 'gpt5.6 luna (go)', '2026-03-15')).toBeUndefined()
+    expect(priceFor(fuzzy, 'pro', 'gpt5.6 luna (go)', '2026-03-15')?.inputPerMillion).toBe(1)
+  })
+
+  it('keeps an exact match ahead of a normalized one', () => {
+    const rules: QuotaPriceTable = {
+      currency: 'USD',
+      fuzzyMatch: true,
+      rules: [
+        { model: 'gpt-5.6-luna', inputPerMillion: 1, outputPerMillion: 1 },
+        { model: 'gpt5.6-luna', inputPerMillion: 7, outputPerMillion: 7 },
+      ],
+    }
+    // The exact pass finds the second rule and never reaches the fuzzy pass.
+    expect(priceFor(rules, 'pro', 'gpt5.6-luna', '2026-03-15')?.inputPerMillion).toBe(7)
   })
 
   it('keeps the later start when two rules of equal reach both apply', () => {

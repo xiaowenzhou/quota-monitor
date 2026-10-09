@@ -106,6 +106,7 @@ export function declarativeAdapter(spec: QuotaDeclarativeSpec): QuotaAdapter {
         auth,
         ...key === undefined ? {} : { apiKey: key },
         ...context.allowPlaintext === true ? { allowPlaintext: true } : {},
+        ...context.allowedHosts === undefined ? {} : { allowedHosts: context.allowedHosts },
         ...context.fetchImpl === undefined ? {} : { fetchImpl: context.fetchImpl },
       })
 

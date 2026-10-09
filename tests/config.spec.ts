@@ -64,7 +64,7 @@ class NoCredentials extends CredentialProvider {
 describe('Config', () => {
   it('ships no price list, so a deployment states its own rates', () => {
     const config = Config({})
-    expect(config.pricing).toEqual({ currency: 'USD', rules: [] })
+    expect(config.pricing).toEqual({ currency: 'USD', rules: [], imports: [], fuzzyMatch: false })
     expect(config.budgets.daily).toBeUndefined()
     expect(config.budgets.monthly).toBeUndefined()
   })
@@ -116,7 +116,19 @@ describe('assertConsistent', () => {
 
   it('rejects a budget with no price rule to measure it against', () => {
     expect(() =>{  assertConsistent(Config({ budgets: { monthly: 100 } })) })
-      .toThrow(/budgets require at least one pricing.rules entry/)
+      .toThrow(/budgets require pricing\.rules or pricing\.imports/)
+  })
+
+  it('accepts a budget measured against an imported document alone', () => {
+    expect(() =>{  assertConsistent(Config({
+      pricing: { imports: [{ path: '/prices/catalog.json' }] },
+      budgets: { daily: 5 },
+    })) }).not.toThrow()
+  })
+
+  it('rejects an import path that is not absolute', () => {
+    expect(() =>{  assertConsistent(Config({ pricing: { imports: [{ path: 'prices.json' }] } })) })
+      .toThrow(/must be absolute/)
   })
 
   it('rejects a critical threshold below the warning threshold', () => {
@@ -134,7 +146,7 @@ describe('assertConsistent', () => {
       await expect(ctx.plugin(QuotaMonitorService, Config({
         refresh: { enabled: false },
         budgets: { daily: 1 },
-      }))).rejects.toThrow(/budgets require at least one pricing.rules entry/)
+      }))).rejects.toThrow(/budgets require pricing\.rules or pricing\.imports/)
     }
     finally {
       await ctx.fiber.dispose()

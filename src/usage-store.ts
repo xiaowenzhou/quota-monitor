@@ -54,7 +54,7 @@ export class QuotaUsageStore {
   constructor(
     private readonly ctx: Context,
     private readonly now: () => number,
-    private readonly derive: QuotaDeriveOptions = {},
+    private derive: QuotaDeriveOptions = {},
   ) {
     this.report = emptyUsageReport(now(), false)
   }
@@ -68,6 +68,23 @@ export class QuotaUsageStore {
       ...this.derive.prices === undefined ? {} : { prices: this.derive.prices },
       ...this.derive.budgets === undefined ? {} : { budgets: this.derive.budgets },
     })
+  }
+
+  /**
+   * Replace the price table the report derives spend with.
+   *
+   * Imported documents are re-read while the plugin runs, so the table is not
+   * fixed at construction: the report is rebuilt here so the next read already
+   * prices with the new rules.
+   * @param table - the current table, or undefined when the deployment states no prices.
+   */
+  setPrices(table: QuotaPriceTable | undefined): void {
+    // Rebuilt rather than patched: `prices` is optional under
+    // `exactOptionalPropertyTypes`, so a present-but-undefined key is not the
+    // same value as an absent one.
+    const { prices: _replaced, ...rest } = this.derive
+    this.derive = table === undefined ? rest : { ...rest, prices: table }
+    this.report = this.build(this.foldedAt)
   }
 
   /**

@@ -12,6 +12,7 @@
  */
 
 import zs from '@deepseek-ai/schemastery'
+import { isAbsolute } from 'node:path'
 import type { QuotaAdapterId } from './identity.ts'
 import type { QuotaDeclarativeSpec } from './adapters/declarative.ts'
 import type { QuotaPriceRule } from './pricing.ts'
@@ -59,12 +60,41 @@ export interface QuotaDetectionConfig {
   enabled: boolean
 }
 
+/**
+ * One price document to load rules from.
+ *
+ * Prices are still configuration rather than a shipped table, but a deployment
+ * that keeps a catalog of its own should not have to restate it inline: the
+ * file is re-read on every background round, so editing it takes effect without
+ * a restart. A rule written in `pricing.rules` always outranks an imported one.
+ */
+export interface QuotaPriceImport {
+  /** Absolute path of a JSON price document. */
+  path: string
+  /**
+   * Unit the document's amounts are denominated in. Absent, the document must
+   * state one itself or define it through a format that carries it (the
+   * `providers` catalog is USD), and a unit differing from `pricing.currency`
+   * fails at load rather than mispricing every figure.
+   */
+  currency?: string
+}
+
 /** Token prices a deployment states so the panel can derive spend. */
 export interface QuotaPricingConfig {
   /** Unit every rule and every derived amount is denominated in. */
   currency: string
   /** The rules themselves; an empty list leaves every cost figure absent. */
   rules: QuotaPriceRule[]
+  /** Documents to load further rules from, re-read on every background round. */
+  imports: QuotaPriceImport[]
+  /**
+   * Whether a model with no exact match may fall back to a normalized
+   * comparison (case, spaces, hyphens, dots, and bracketed notes ignored). A
+   * deployment importing a vendor catalog usually wants this on; it stays off
+   * by default because a normalized hit is an inference, not a statement.
+   */
+  fuzzyMatch: boolean
 }
 
 /**
@@ -104,6 +134,13 @@ export interface QuotaMonitorEntry {
    * loopback. Absent, no plaintext request is made.
    */
   allowPlaintextEndpoint?: boolean
+  /**
+   * Exact hosts this route may send its credential to, as `host` or
+   * `host:port`, lowercased. Empty or absent leaves the route unfenced beyond
+   * the transport rule; naming hosts is how a deployment keeps a copied
+   * configuration from carrying its key to some other gateway.
+   */
+  allowedHosts?: string[]
   /** Remaining balance at or below which this provider is `warning`. */
   warningRemaining?: number
   /** Remaining balance at or below which this provider is `critical`. */
@@ -211,9 +248,16 @@ const monitorEntry = zs.object({
   usageBaseURL: zs.string(),
   credentialRef: zs.string(),
   allowPlaintextEndpoint: zs.boolean(),
+  allowedHosts: zs.array(zs.string()),
   warningRemaining: zs.number(),
   criticalRemaining: zs.number(),
   declarative: optionalSection(declarativeSpec),
+})
+
+/** One price document reference, as written in configuration. */
+const priceImport = zs.object({
+  path: zs.string().required(),
+  currency: zs.string(),
 })
 
 /** One price rule, as written in configuration. */
@@ -254,6 +298,8 @@ export const Config: zs<QuotaMonitorConfigInput, QuotaMonitorConfig> = zs.object
   pricing: zs.object({
     currency: zs.string().default('USD'),
     rules: zs.array(priceRule).default([]),
+    imports: zs.array(priceImport).default([]),
+    fuzzyMatch: zs.boolean().default(false),
   }),
   budgets: zs.object({
     daily: zs.number().min(0),
@@ -267,16 +313,22 @@ export const Config: zs<QuotaMonitorConfigInput, QuotaMonitorConfig> = zs.object
 /**
  * Reject a configuration whose parts contradict each other.
  *
- * A ceiling is measured against derived spend, so a budget without a single
- * price rule could only ever report `unknown`; that is a configuration mistake
- * rather than a state worth rendering, and it fails here at load.
+ * A ceiling is measured against derived spend, so a budget with no price behind
+ * it — neither an inline rule nor an imported document — could only ever report
+ * `unknown`; that is a configuration mistake rather than a state worth
+ * rendering, and it fails here at load.
  * @param config - the validated plugin config.
- * @throws {Error} when a budget is configured with no price rule behind it.
+ * @throws {Error} when a budget is configured with no price behind it.
  */
 export function assertConsistent(config: QuotaMonitorConfig): void {
   const budgeted = config.budgets.daily !== undefined || config.budgets.monthly !== undefined
-  if (budgeted && config.pricing.rules.length === 0) {
-    throw new Error('quota monitor: budgets require at least one pricing.rules entry to measure spend against')
+  if (budgeted && config.pricing.rules.length === 0 && config.pricing.imports.length === 0) {
+    throw new Error('quota monitor: budgets require pricing.rules or pricing.imports to measure spend against')
+  }
+  for (const source of config.pricing.imports) {
+    if (!isAbsolute(source.path)) {
+      throw new Error(`quota monitor: pricing.imports path "${source.path}" must be absolute`)
+    }
   }
   if (config.budgets.criticalPercent < config.budgets.warningPercent) {
     throw new Error('quota monitor: budgets.criticalPercent must not be below budgets.warningPercent')

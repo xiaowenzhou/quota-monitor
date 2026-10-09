@@ -17,6 +17,7 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import zs from '@deepseek-ai/schemastery'
+import { readFile } from 'node:fs/promises'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
 import type { GenerateOptions, LlmConfigurableProvider, LlmProviderInfo, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
@@ -32,6 +33,7 @@ import { QuotaRequestError } from './http.ts'
 import { ADAPTER_MODES, resolveProviderIdentity } from './identity.ts'
 import type { QuotaAdapterId } from './identity.ts'
 import type { QuotaPriceTable } from './pricing.ts'
+import { loadPriceTable } from './price-import.ts'
 import { QuotaUsageStore } from './usage-store.ts'
 import type {
   QuotaAccount,
@@ -113,8 +115,12 @@ export class QuotaMonitorService extends TypertRemoteService {
   private readonly accounts = new Map<string, QuotaAccount>()
   private readonly manual = new Map<string, number>()
   private readonly usageStore: QuotaUsageStore
-  /** Prices this deployment stated, or undefined when it stated none. */
-  private readonly prices: QuotaPriceTable | undefined
+  /**
+   * Prices this deployment stated, or undefined when it stated none. Rebuilt
+   * whenever an imported document changes, so the field is the current table
+   * rather than the one the constructor resolved.
+   */
+  private prices: QuotaPriceTable | undefined
   /**
    * Fingerprint outcome per route and base URL, so an unrecognized gateway is
    * asked what it is at most once per configuration.
@@ -133,16 +139,24 @@ export class QuotaMonitorService extends TypertRemoteService {
     assertConsistent(config)
     this.prices = config.pricing.rules.length === 0
       ? undefined
-      : { currency: config.pricing.currency, rules: config.pricing.rules }
+      : {
+        currency: config.pricing.currency,
+        rules: config.pricing.rules,
+        fuzzyMatch: config.pricing.fuzzyMatch,
+      }
+    const priced = config.pricing.rules.length > 0 || config.pricing.imports.length > 0
     this.usageStore = new QuotaUsageStore(ctx, () => Date.now(), {
       ...this.prices === undefined ? {} : { prices: this.prices },
-      ...this.prices === undefined ? {} : { budgets: config.budgets },
+      ...priced ? { budgets: config.budgets } : {},
     })
   }
 
   /** Attach the stream tap, open the usage cache, and schedule background rounds. */
   protected async [Service.init](): Promise<void> {
     this.refresh()
+    // Imported documents are read before the first report, so a deployment
+    // whose prices live in a file never shows an unpriced report.
+    await this.reloadPrices(true)
 
     const stopStream = this.ctx.on('llm/stream', (options: GenerateOptions, next: () => AsyncIterable<StreamChunk>) =>
       this.tapStream(options, next))
@@ -263,6 +277,7 @@ export class QuotaMonitorService extends TypertRemoteService {
 
   /** Refold usage and refresh the focused provider's account. */
   private async runBackgroundRound(): Promise<void> {
+    await this.reloadPrices(false)
     await this.usageStore.refresh()
     await this.refreshFocusedAccount()
   }
@@ -308,6 +323,7 @@ export class QuotaMonitorService extends TypertRemoteService {
       ...entry?.usageBaseURL === undefined ? {} : { usageBaseURL: entry.usageBaseURL },
       ...entry?.credentialRef === undefined ? {} : { credentialRef: entry.credentialRef },
       ...entry?.allowPlaintextEndpoint === true ? { allowPlaintext: true } : {},
+      ...entry?.allowedHosts === undefined ? {} : { allowedHosts: entry.allowedHosts.map(host => host.toLowerCase()) },
     }
 
     const adapter = this.adapterFor(identity.adapter, entry)
@@ -481,6 +497,33 @@ export class QuotaMonitorService extends TypertRemoteService {
     bucket.cacheReadTokens += usage.cacheReadTokens ?? 0
     bucket.cacheWriteTokens += usage.cacheWriteTokens ?? 0
     bucket.reasoningTokens += usage.reasoningTokens ?? 0
+  }
+
+  /**
+   * Reload the price table, including every configured document.
+   *
+   * A deployment that keeps prices in a file edits that file, not the profile
+   * patch: re-reading on each round is what makes the edit take effect without
+   * a restart. The table is replaced only when it actually changed, so a
+   * steady-state round costs one read per document and no report rebuild.
+   * @param failLoud - whether an unreadable document throws instead of being
+   * logged. True at load, where it is a configuration error; false afterwards,
+   * where keeping the last good table beats blanking every cost figure.
+   */
+  private async reloadPrices(failLoud: boolean): Promise<void> {
+    let next: QuotaPriceTable | undefined
+    try {
+      next = await loadPriceTable(this.config, path => readFile(path, 'utf8'))
+    } catch (error) {
+      if (failLoud) throw error
+      this.ctx.logger.warn(`quota monitor: keeping the previous price table: ${String(error)}`)
+      return
+    }
+    const before = this.prices === undefined ? '' : JSON.stringify(this.prices)
+    const after = next === undefined ? '' : JSON.stringify(next)
+    this.prices = next
+    if (before === after) return
+    this.usageStore.setPrices(next)
   }
 
   /** Re-read the provider registry and configurable-provider directory. */

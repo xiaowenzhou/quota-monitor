@@ -734,6 +734,22 @@ describe('request guards', () => {
     expect(body).toEqual({ ok: true })
   })
 
+  it('keeps a fenced route to the hosts its deployment named', async () => {
+    const fenced = {
+      url: 'https://relay.example.com/v1/usage',
+      apiKey: 'k',
+      allowedHosts: ['other.example.com'],
+      fetchImpl: serve({ 'https://relay.example.com/v1/usage': { ok: true } }),
+    }
+    await expect(requestJson(fenced)).rejects.toThrow(/not among this route's monitors\.allowedHosts/)
+
+    const permitted = await requestJson({
+      ...fenced,
+      allowedHosts: ['relay.example.com'],
+    })
+    expect(permitted).toEqual({ ok: true })
+  })
+
   it('refuses a URL embedding credentials', async () => {
     await expect(requestJson({ url: 'https://user:pass@api.example.com/x', fetchImpl: serve({}) }))
       .rejects.toThrow(/must not embed credentials/)

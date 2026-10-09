@@ -71,10 +71,17 @@ export function isFallthrough(error: unknown): boolean {
  * @param url - the resolved endpoint.
  * @param allowPlaintext - whether this route's deployment named a plaintext
  * endpoint explicitly (see {@link QuotaRequestOptions.allowPlaintext}).
+ * @param allowedHosts - exact hosts this route may address, empty for no fence.
  */
-function assertCredentialTarget(url: URL, allowPlaintext: boolean): void {
+function assertCredentialTarget(url: URL, allowPlaintext: boolean, allowedHosts: readonly string[]): void {
   if (url.username !== '' || url.password !== '') {
     throw new QuotaRequestError('blocked', 'endpoint URL must not embed credentials')
+  }
+  if (allowedHosts.length > 0 && !allowedHosts.includes(url.host.toLowerCase())) {
+    throw new QuotaRequestError(
+      'blocked',
+      `endpoint host ${url.host.toLowerCase()} is not among this route's monitors.allowedHosts`,
+    )
   }
   if (url.protocol === 'https:') return
   // A self-hosted gateway on this machine is the one case where plaintext is
@@ -131,6 +138,13 @@ export interface QuotaRequestOptions {
    * credential travels over TLS or to loopback http only.
    */
   allowPlaintext?: boolean
+  /**
+   * Exact hosts this request may address, as `host` or `host:port` lowercased.
+   * Empty or absent leaves the request unfenced beyond the transport rule; a
+   * named list is how a deployment keeps a copied configuration from carrying
+   * its credential to a gateway it never named.
+   */
+  allowedHosts?: readonly string[]
   /** Injected fetch, so tests drive adapters without network access. */
   fetchImpl?: typeof fetch
 }
@@ -143,14 +157,22 @@ export interface QuotaRequestOptions {
  * @throws {QuotaRequestError} on a rejected target, transport failure, HTTP error, oversized body, or invalid JSON.
  */
 export async function requestJson(options: QuotaRequestOptions): Promise<unknown> {
-  const { url, apiKey, auth = 'bearer', headers = {}, timeoutMs = REQUEST_TIMEOUT_MS, allowPlaintext = false } = options
+  const {
+    url,
+    apiKey,
+    auth = 'bearer',
+    headers = {},
+    timeoutMs = REQUEST_TIMEOUT_MS,
+    allowPlaintext = false,
+    allowedHosts = [],
+  } = options
   let target: URL
   try {
     target = new URL(url)
   } catch {
     throw new QuotaRequestError('invalid-response', 'endpoint URL is not absolute')
   }
-  assertCredentialTarget(target, allowPlaintext)
+  assertCredentialTarget(target, allowPlaintext, allowedHosts)
 
   const auths: Record<string, string> = {}
   if (auth !== 'none' && apiKey !== undefined && apiKey !== '') {

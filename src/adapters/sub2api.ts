@@ -295,6 +295,7 @@ export async function detectSub2apiPanel(context: QuotaAdapterContext): Promise<
       url: `${originOf(context)}${FINGERPRINT_PATH}`,
       auth: 'none',
       ...context.allowPlaintext === true ? { allowPlaintext: true } : {},
+      ...context.allowedHosts === undefined ? {} : { allowedHosts: context.allowedHosts },
       ...context.fetchImpl === undefined ? {} : { fetchImpl: context.fetchImpl },
     })
     if (!isRecord(body) || numberOf(body['code']) !== 0) return false

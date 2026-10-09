@@ -43,8 +43,12 @@ export declare class QuotaMonitorService extends TypertRemoteService {
     private readonly accounts;
     private readonly manual;
     private readonly usageStore;
-    /** Prices this deployment stated, or undefined when it stated none. */
-    private readonly prices;
+    /**
+     * Prices this deployment stated, or undefined when it stated none. Rebuilt
+     * whenever an imported document changes, so the field is the current table
+     * rather than the one the constructor resolved.
+     */
+    private prices;
     /**
      * Fingerprint outcome per route and base URL, so an unrecognized gateway is
      * asked what it is at most once per configuration.
@@ -138,6 +142,18 @@ export declare class QuotaMonitorService extends TypertRemoteService {
     private tapStream;
     /** Accumulate one usage report into a bucket. */
     private addUsage;
+    /**
+     * Reload the price table, including every configured document.
+     *
+     * A deployment that keeps prices in a file edits that file, not the profile
+     * patch: re-reading on each round is what makes the edit take effect without
+     * a restart. The table is replaced only when it actually changed, so a
+     * steady-state round costs one read per document and no report rebuild.
+     * @param failLoud - whether an unreadable document throws instead of being
+     * logged. True at load, where it is a configuration error; false afterwards,
+     * where keeping the last good table beats blanking every cost figure.
+     */
+    private reloadPrices;
     /** Re-read the provider registry and configurable-provider directory. */
     private refresh;
     private noteProvider;

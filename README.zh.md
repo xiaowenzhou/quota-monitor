@@ -114,7 +114,25 @@ config:
     criticalPercent: 100
 ```
 
-规则按其给出的最窄名字匹配 `provider · model` 路由：提供商加精确模型、以 `*` 结尾的模型系列、按提供商、全量兜底。`from` 让规则自某个本地日历天起生效，因此提价不会改动更早那些天当时的计价。`cacheReadPerMillion` 与 `cacheWritePerMillion` 默认取输入费率，对应那些计量缓存 token 却不单独定价的提供商。没有规则覆盖的调用会被计数，而不是按零计费，面板会把这个次数写在金额旁边。预算以 `pricing.currency` 计价，因此一条价格规则都没有却配置了预算会在加载时失败，而不是渲染为未知。
+规则按其给出的最窄名字匹配 `provider · model` 路由：提供商加精确模型、以 `*` 结尾的模型系列、按提供商、全量兜底。`from` 让规则自某个本地日历天起生效，因此提价不会改动更早那些天当时的计价。`cacheReadPerMillion` 与 `cacheWritePerMillion` 默认取输入费率，对应那些计量缓存 token 却不单独定价的提供商。没有规则覆盖的调用会被计数，而不是按零计费，面板会把这个次数写在金额旁边。预算以 `pricing.currency` 计价，因此没有任何价格支撑却配置了预算会在加载时失败，而不是渲染为未知。
+
+把价格目录留在文件里维护的部署，改用 `pricing.imports` 引用它，而不必在配置里重述：
+
+```yaml
+config:
+  pricing:
+    currency: USD
+    fuzzyMatch: true
+    imports:
+      - path: /srv/dsh/prices/provider-pricing.json
+    rules:
+      - provider: my-relay
+        model: glm-4*
+        inputPerMillion: 0.6
+        outputPerMillion: 2.2
+```
+
+每个路径都必须是绝对路径，并会在每轮后台刷新时重新读取；支持两种格式：本包自己的格式（`{ currency, rules }`，或直接一个规则数组），以及公开的厂商目录（`providers.<vendor>.models.<id>.{ input, output, cachedInput, cacheWrite }`，单位为美元/百万 token）。在同等具体的匹配上，`pricing.rules` 里写下的规则优先于导入的规则，因此部署可以只覆盖目录中的某一个模型而不必复制整份目录。金额从不换算：文档单位与 `pricing.currency` 不一致会在加载时失败。`fuzzyMatch` 让精确匹配与前缀匹配都未命中的模型退回到归一化比较——忽略大小写、空格、连字符、点号与括号附注——有了它，厂商目录才能用于那些把同一模型拼得不一样的 route id；默认关闭，因为这种命中是推断而不是陈述。目录条目里的上下文长度分档与峰谷费率不在建模范围内，会被忽略。
 
 ### 导出
 
@@ -137,7 +155,7 @@ config:
 
 声明式形式是数据而非代码：它只给出一个端点和若干 RFC 6901 JSON Pointer，因此接入新网关不会扩大本插件可执行的范围。
 
-`usageBaseURL` 用于账户端点不在推理 base URL 之下的网关；`credentialRef` 用于网关期望的凭据引用与 provider 档案里存的 key 名不同时。`allowPlaintextEndpoint: true` 是传输规则唯一一处刻意例外：内网网关的地址看起来与公网地址无异，只能走明文读取，写下这条路由即是运维者的批准。该许可只覆盖这一条路由——其余路由仍然需要 TLS 或回环。
+`usageBaseURL` 用于账户端点不在推理 base URL 之下的网关；`credentialRef` 用于网关期望的凭据引用与 provider 档案里存的 key 名不同时。`allowPlaintextEndpoint: true` 是传输规则唯一一处刻意例外：内网网关的地址看起来与公网地址无异，只能走明文读取，写下这条路由即是运维者的批准。该许可只覆盖这一条路由——其余路由仍然需要 TLS 或回环。`allowedHosts` 把一条路由限制在它被允许访问的确切主机上（写 `host` 或 `host:port`）：这样一份被改过 base URL 的复制配置会以 `blocked` 失败，而不会把那把 Key 发到部署从未提过的地方。留空或不写表示这条路由只受传输规则约束。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
@@ -158,6 +176,7 @@ config:
 | [`src/parse.ts`](src/parse.ts) | 数值转换、字段探测、百分比钳制、时间戳归一 |
 | [`src/adapters/`](src/adapters/) | 每类账户一个模块，外加 Sub2API 指纹与声明式读取器 |
 | [`src/pricing.ts`](src/pricing.ts) | 按路由与日期匹配规则，以及各口径共用的开销累加器 |
+| [`src/price-import.ts`](src/price-import.ts) | 从配置指定的文档读取价格规则（两种受支持格式） |
 | [`src/usage-fold.ts`](src/usage-fold.ts) | 把会话事件纯函数式折叠为按天、按路由的计数 |
 | [`src/usage-store.ts`](src/usage-store.ts) | 折叠轮次：读取会话、缓存折叠结果、组装报告 |
 | [`src/usage-domain.ts`](src/usage-domain.ts) | `quota_usage` 存储域，每个会话一条折叠记录 |
@@ -226,6 +245,7 @@ config:
 - 用量总量折叠自持久化的会话日志，因此日志从未写出的会话不贡献任何数字。进程内实时计数只覆盖当前进程并随之重置，手动额度同理。
 - 会话列表以 id、最后活跃时刻与路由标识一个会话，不带对话标题：标题是由提示词衍生的文本，而 `quota_usage` 折叠只保存计数与路由 id。要显示标题就得把面板列出的每份会话日志再读一遍。
 - 开销的完整程度取决于所配置的价格。本包不随附价目表，没有规则覆盖的路由报告为未定价而不是免费，且一条规则只表达一个固定的每百万费率，因此阶梯价、批量价与按上下文长度计价都无法表达。
+- 导入的目录按模型给出单一费率。这类文档可能携带的上下文长度分档与峰谷费率会被忽略，且导入金额从不换算，因此单位不一致的文档会被拒绝而不是缩放。本包也不按时段计价：同一模型在峰时与谷时费率不同的提供商，在这里一律按其规则陈述的那一个费率计费。`fuzzyMatch` 比较归一化后的模型 id，可能把某个恰好归一化相同的 route 计成目录中的条目；关掉它，匹配就只认规则字面写明的内容。
 - 适配器覆盖面是端点特定的。既未公开任何已识别端点、也不响应指纹的网关报告 `unsupported`；声明式监控与手动额度是两种变通方式。
 - 网关识别只认得一类。它只探测一个公开设置文档，因此隐藏该路由、或把它放在登录之后的中转，仍然需要 `monitors.<id>.adapter`。
 - AgentRouter 的账户与预算池数字不附带单位，因此面板标注为 `credits` 并原样呈现端点上报的值。其字段名取自一组按序候选而非某个钉死的拼写，因此字段改名只会让该行降级，而不会报出错误数字。

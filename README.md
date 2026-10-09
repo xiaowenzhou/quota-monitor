@@ -114,7 +114,25 @@ config:
     criticalPercent: 100
 ```
 
-A rule matches a `provider · model` route by the narrowest name it gives: provider plus exact model, then a `*`-suffixed model family, then provider-wide, then a catch-all. `from` applies a rule from a local calendar day onward, so raising a price leaves earlier days priced as they were billed. `cacheReadPerMillion` and `cacheWritePerMillion` default to the input rate, matching a provider that meters cache tokens without pricing them separately. Calls no rule covers are counted, never charged at zero, and the panel states that count beside the amount. Budgets are denominated in `pricing.currency`, so a budget configured without a single price rule fails at load rather than rendering as unknown.
+A rule matches a `provider · model` route by the narrowest name it gives: provider plus exact model, then a `*`-suffixed model family, then provider-wide, then a catch-all. `from` applies a rule from a local calendar day onward, so raising a price leaves earlier days priced as they were billed. `cacheReadPerMillion` and `cacheWritePerMillion` default to the input rate, matching a provider that meters cache tokens without pricing them separately. Calls no rule covers are counted, never charged at zero, and the panel states that count beside the amount. Budgets are denominated in `pricing.currency`, so a budget configured with no price behind it fails at load rather than rendering as unknown.
+
+A deployment that keeps a catalog in a file names it under `pricing.imports` instead of restating it:
+
+```yaml
+config:
+  pricing:
+    currency: USD
+    fuzzyMatch: true
+    imports:
+      - path: /srv/dsh/prices/provider-pricing.json
+    rules:
+      - provider: my-relay
+        model: glm-4*
+        inputPerMillion: 0.6
+        outputPerMillion: 2.2
+```
+
+Each path must be absolute, is re-read on every background round, and is understood in two shapes: this package's own (`{ currency, rules }`, or a bare rule array) and the published vendor catalog (`providers.<vendor>.models.<id>.{ input, output, cachedInput, cacheWrite }`, USD per million). A rule written in `pricing.rules` outranks an imported one on an equally specific match, so a deployment overrides one model of a catalog without copying it. Amounts are never converted: a document whose unit is not `pricing.currency` fails at load. `fuzzyMatch` lets a model no exact or prefix pattern covers fall back to a normalized comparison — case, spaces, hyphens, dots, and bracketed notes ignored — which is what makes a vendor catalog usable for route ids that spell the same model differently; it is off by default because that hit is an inference rather than a statement. A catalog entry's context-length tiers and off-peak rates are not modelled, and are ignored.
 
 ### Exporting
 
@@ -137,7 +155,7 @@ config:
 
 The declarative form is data, not code: it names an endpoint and RFC 6901 JSON Pointers to the figures, so reaching a new gateway never widens what this plugin can execute.
 
-`usageBaseURL` addresses a gateway whose account endpoint does not sit under the inference base URL, and `credentialRef` names the reference that gateway expects when it differs from the key its provider profile stores. `allowPlaintextEndpoint: true` is the one deliberate exception to the transport rule: an intranet gateway reached over plaintext at an address that carries no more trust than any other can only be read that way, and naming the route is the operator's approval. The permission covers that route alone — every other route still needs TLS or loopback.
+`usageBaseURL` addresses a gateway whose account endpoint does not sit under the inference base URL, and `credentialRef` names the reference that gateway expects when it differs from the key its provider profile stores. `allowPlaintextEndpoint: true` is the one deliberate exception to the transport rule: an intranet gateway reached over plaintext at an address that carries no more trust than any other can only be read that way, and naming the route is the operator's approval. The permission covers that route alone — every other route still needs TLS or loopback. `allowedHosts` fences a route to the exact hosts it may address, as `host` or `host:port`; a copied configuration whose base URL was edited then fails as `blocked` instead of sending that route's key somewhere the deployment never named. An empty or absent list keeps the route fenced only by the transport rule.
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
@@ -158,6 +176,7 @@ The two halves share one wire vocabulary: the browser half never reads provider 
 | [`src/parse.ts`](src/parse.ts) | Numeric coercion, key probing, percent clamping, epoch normalization |
 | [`src/adapters/`](src/adapters/) | One module per account family, the Sub2API fingerprint, and the declarative reader |
 | [`src/pricing.ts`](src/pricing.ts) | Rule matching by route and day, and the cost accumulator every scope shares |
+| [`src/price-import.ts`](src/price-import.ts) | Reading price rules from a configured document, in either understood format |
 | [`src/usage-fold.ts`](src/usage-fold.ts) | Pure folding of session events into per-day, per-route counters |
 | [`src/usage-store.ts`](src/usage-store.ts) | The fold round: reading sessions, caching folds, assembling the report |
 | [`src/usage-domain.ts`](src/usage-domain.ts) | The `quota_usage` storage domain holding one fold record per session |
@@ -226,6 +245,7 @@ The panel and its Host service add nothing to model context. Token figures are r
 - Usage totals are folded from persisted session logs, so a session whose log was never written contributes nothing. Live per-process counters cover the current process only and reset with it, as do manual allowances.
 - The session list identifies a session by id, latest activity, and routes; it carries no conversation title, because a title is prompt-derived text and the `quota_usage` fold holds counters and route ids only. Reading a title would require a second read of every session log the panel lists.
 - Spend is only as complete as the configured prices. No price list ships, a route no rule covers is reported as unpriced rather than free, and a rule states one flat per-million rate, so tiered, batch, and context-length pricing are not expressed.
+- An imported catalog is priced at one rate per model. Context-length tiers and off-peak rates such a document may carry are ignored, and an imported amount is never converted, so a document in another unit is refused rather than rescaled. Nothing is priced by time of day: a provider charging peak and off-peak rates for the same model is billed by this package at the single rate its rule states. `fuzzyMatch` compares normalized model ids, which can price a route whose id happens to normalize like a catalog entry; leaving it off keeps matching to what a rule literally says.
 - Adapter coverage is endpoint-specific. A gateway publishing none of the recognized endpoints, and answering no fingerprint, reports `unsupported`; the declarative monitor and the manual allowance are the two workarounds.
 - Gateway detection recognizes one family. It probes a single public settings document, so a relay that hides that route, or serves it behind a login, still needs `monitors.<id>.adapter`.
 - AgentRouter discloses no unit with its account and pool figures, so the panel labels them `credits` and shows them exactly as reported. Its section keys are read from an ordered candidate list rather than one pinned spelling, so a renamed field degrades that row rather than reporting a wrong number.

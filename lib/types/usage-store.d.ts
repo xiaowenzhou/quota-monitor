@@ -26,7 +26,7 @@ export interface QuotaDeriveOptions {
 export declare class QuotaUsageStore {
     private readonly ctx;
     private readonly now;
-    private readonly derive;
+    private derive;
     private readonly folds;
     private table;
     private report;
@@ -42,6 +42,15 @@ export declare class QuotaUsageStore {
     constructor(ctx: Context, now: () => number, derive?: QuotaDeriveOptions);
     /** Build the report from the current folds. */
     private build;
+    /**
+     * Replace the price table the report derives spend with.
+     *
+     * Imported documents are re-read while the plugin runs, so the table is not
+     * fixed at construction: the report is rebuilt here so the next read already
+     * prices with the new rules.
+     * @param table - the current table, or undefined when the deployment states no prices.
+     */
+    setPrices(table: QuotaPriceTable | undefined): void;
     /**
      * Open the durable fold cache and seed the in-memory folds from it.
      *
