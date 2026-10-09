@@ -10,7 +10,7 @@
  */
 import type { QuotaRequestOptions } from '../http.ts';
 import type { QuotaAdapterId } from '../identity.ts';
-import type { QuotaAccountMode, QuotaBudgetPool, QuotaPlanWindow } from '../types.ts';
+import type { QuotaAccountMode, QuotaBudgetPool, QuotaGatewayUsage, QuotaPlanWindow } from '../types.ts';
 /** What one adapter read from an account endpoint. */
 export interface QuotaAccountReading {
     /**
@@ -36,7 +36,24 @@ export interface QuotaAccountReading {
     planWindows?: readonly QuotaPlanWindow[];
     /** Budget pools reported beside the balance. */
     budgetPools?: readonly QuotaBudgetPool[];
+    /**
+     * Usage rows the endpoint reported for its own credential, when it publishes
+     * any. These are the gateway's figures, not this plugin's fold.
+     */
+    usage?: readonly QuotaGatewayUsage[];
 }
+/**
+ * One usage row an endpoint reported about its own credential.
+ *
+ * A section that carries no count is dropped rather than reported as zero: a
+ * gateway that discloses one table and omits another should not produce an
+ * empty row for the table it omits.
+ * @param kind - which table the row belongs to.
+ * @param label - the row's own label, such as a date, a model, or a pool name.
+ * @param section - the response section to read.
+ * @returns the row, or `undefined` when the section discloses no figure.
+ */
+export declare function gatewayUsageRow(kind: QuotaGatewayUsage['kind'], label: string | undefined, section: unknown): QuotaGatewayUsage | undefined;
 /** The provider facts an adapter resolves its request from. */
 export interface QuotaAdapterContext {
     /** Provider route key. */

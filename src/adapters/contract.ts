@@ -11,8 +11,9 @@
 
 import { QuotaRequestError } from '../http.ts'
 import type { QuotaRequestOptions } from '../http.ts'
+import { isRecord, pickNumber, pickString } from '../parse.ts'
 import type { QuotaAdapterId } from '../identity.ts'
-import type { QuotaAccountMode, QuotaBudgetPool, QuotaPlanWindow } from '../types.ts'
+import type { QuotaAccountMode, QuotaBudgetPool, QuotaGatewayUsage, QuotaPlanWindow } from '../types.ts'
 
 /** What one adapter read from an account endpoint. */
 export interface QuotaAccountReading {
@@ -39,6 +40,54 @@ export interface QuotaAccountReading {
   planWindows?: readonly QuotaPlanWindow[]
   /** Budget pools reported beside the balance. */
   budgetPools?: readonly QuotaBudgetPool[]
+  /**
+   * Usage rows the endpoint reported for its own credential, when it publishes
+   * any. These are the gateway's figures, not this plugin's fold.
+   */
+  usage?: readonly QuotaGatewayUsage[]
+}
+
+/**
+ * One usage row an endpoint reported about its own credential.
+ *
+ * A section that carries no count is dropped rather than reported as zero: a
+ * gateway that discloses one table and omits another should not produce an
+ * empty row for the table it omits.
+ * @param kind - which table the row belongs to.
+ * @param label - the row's own label, such as a date, a model, or a pool name.
+ * @param section - the response section to read.
+ * @returns the row, or `undefined` when the section discloses no figure.
+ */
+export function gatewayUsageRow(
+  kind: QuotaGatewayUsage['kind'],
+  label: string | undefined,
+  section: unknown,
+): QuotaGatewayUsage | undefined {
+  if (label === undefined || !isRecord(section)) return undefined
+  const requests = pickNumber(section, ['requests', 'request_count', 'calls', 'total_calls'])
+  const inputTokens = pickNumber(section, ['input_tokens'])
+  const outputTokens = pickNumber(section, ['output_tokens'])
+  const cacheReadTokens = pickNumber(section, ['cache_read_tokens'])
+  const cacheWriteTokens = pickNumber(section, ['cache_creation_tokens', 'cache_write_tokens'])
+  const totalTokens = pickNumber(section, ['total_tokens'])
+  if (requests === undefined && totalTokens === undefined && inputTokens === undefined
+    && outputTokens === undefined && cacheReadTokens === undefined && cacheWriteTokens === undefined) {
+    return undefined
+  }
+  const cost = pickNumber(section, ['actual_cost', 'cost', 'total_cost'])
+  const currency = pickString(section, ['cost_currency', 'currency', 'unit'])
+  return {
+    kind,
+    label,
+    ...requests === undefined ? {} : { requests },
+    ...inputTokens === undefined ? {} : { inputTokens },
+    ...outputTokens === undefined ? {} : { outputTokens },
+    ...cacheReadTokens === undefined ? {} : { cacheReadTokens },
+    ...cacheWriteTokens === undefined ? {} : { cacheWriteTokens },
+    ...totalTokens === undefined ? {} : { totalTokens },
+    ...cost === undefined ? {} : { cost },
+    ...currency === undefined ? {} : { currency },
+  }
 }
 
 /** The provider facts an adapter resolves its request from. */

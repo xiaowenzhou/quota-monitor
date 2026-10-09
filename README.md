@@ -7,22 +7,6 @@ kind: "package-reference"
 
 English | [中文](README.zh.md)
 
-> **Standalone repository.** This is the quota monitor developed inside the
-> [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) workspace,
-> packaged so a DSH web profile can install it on its own. It is not an official
-> DeepSeek release; the package name keeps the upstream `@deepseek-ai` scope
-> because that is the name a profile row resolves, and [NOTICE](NOTICE) records
-> the attribution.
->
-> ```sh
-> dsh plugin --profile web add github:xiaowenzhou/quota-monitor
-> ```
->
-> Then restart DSH. `lib/` holds the built artifacts, so nothing is compiled on
-> install; the source tree is included for reference and for rebuilding inside a
-> deepseek-harness checkout (`pnpm exec tsc -b tsconfig.host.json` followed by
-> `DSH_BUILD_FACE=host pnpm exec tsdown` in this directory).
-
 ## Summary
 
 `dsh-extension-quota-monitor` answers two questions about a running harness: how much has been spent, and how much remains. The Host half reads each configured provider's account endpoint through seventeen adapters, folds every persisted session log into per-day `provider · model` token totals, and taps the `llm/stream` waterfall for live counters. Its sidebar panel shows every watched account as a status chip, the selected account's figures, today/month/all-time totals with derived spend and budget bars, a calendar of daily usage, per-day and per-session breakdowns, and CSV/JSON exports. Credentials never leave the Host process, and an unreadable account reports why rather than zero.
@@ -47,6 +31,7 @@ Mount this plugin when an operator wants spend and remaining allowance beside th
 - **One account at a time** — the selected chip's card shows either a balance (remaining, spent, allowance, currency) or a subscription's plan windows, whichever that provider publishes.
 - **Plan windows** — a subscription account reports each window as a used-share bar with its own reset countdown: the provider's rolling session window, five-hour, daily, weekly, monthly, the billing period, and a standalone quota.
 - **Budget pools** — an AgentRouter account reports its account remainder plus one row per budget pool, each with the pool's own remainder and allowance.
+- **Account usage** — an endpoint that publishes its own usage tables shows them under the card, one row per day, per model, or per budget pool. That ledger belongs to the credential the read was made with, so two keys behind one provider route each state their own totals — the split the local fold cannot make, because a model request names a route and never the key that served it.
 - **Token analytics** — today, this month, and all time, each split into input, output, cache-read, and cache-write, plus today's cache-hit share of billed input.
 - **Derived spend** — every total, day, route row, and session also carries an amount once `pricing.rules` is configured, with the number of calls no rule priced stated beside it.
 - **Spend ceilings** — `budgets.daily` and `budgets.monthly` become bars that turn amber and then red as derived spend approaches them.
@@ -220,11 +205,11 @@ Account reads use Node's own TLS stack rather than shelling out to a sidecar or 
 
 Read these pages when you need the seams this package reads or the conventions it follows.
 
-- [Extensions subsystem](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/extensions.md) — how a Cordis extension package is composed and mounted.
-- [Settings subsystem](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/settings.md) — the provider-profile registry account reads resolve against.
-- [LLM streaming subsystem](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/llm-streaming.md) — the waterfall this package taps for live counters.
-- [Session query](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/session-query/session-query) — the session corpus the usage fold reads.
-- [Storage domains](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/storage/storage-domain) — the KV domain layer holding the fold cache.
+- [Extensions subsystem](../../../docs/subsystems/extensions.md) — how a Cordis extension package is composed and mounted.
+- [Settings subsystem](../../../docs/subsystems/settings.md) — the provider-profile registry account reads resolve against.
+- [LLM streaming subsystem](../../../docs/subsystems/llm-streaming.md) — the waterfall this package taps for live counters.
+- [Session query](../../session-query/session-query/README.md) — the session corpus the usage fold reads.
+- [Storage domains](../../storage/storage-domain/README.md) — the KV domain layer holding the fold cache.
 
 <a id="model-experience"></a>
 ## Model Experience

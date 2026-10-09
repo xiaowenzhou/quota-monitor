@@ -100,6 +100,16 @@ export interface QuotaAccount {
     planWindows?: readonly QuotaPlanWindow[];
     /** Budget pools reported beside the account balance, in endpoint order. */
     budgetPools?: readonly QuotaBudgetPool[];
+    /**
+     * Usage the endpoint itself reported for the credential it was read with.
+     *
+     * This is the gateway's own accounting rather than this plugin's fold, so it
+     * covers every call that credential made — including calls no process here
+     * saw. It is also the only per-credential split available: a model request
+     * carries a provider route, never the key that served it, so two keys behind
+     * one route can only be told apart by asking each endpoint about its own.
+     */
+    usage?: readonly QuotaGatewayUsage[];
     /** Severity of the remaining figure, when one could be resolved. */
     warning?: QuotaWarningLevel;
     /**
@@ -111,6 +121,31 @@ export interface QuotaAccount {
     reason?: string;
     /** Manual allowance the user entered for this provider, when no endpoint answered. */
     manual?: QuotaBalanceEstimate;
+}
+/**
+ * One usage row an account endpoint reported about its own credential.
+ *
+ * The gateway's accounting, not this plugin's fold: it counts every call that
+ * credential made, and it is the only per-credential split available, because a
+ * model request names a provider route and never the key that served it.
+ */
+export interface QuotaGatewayUsage {
+    /** Which table the row came from, so the panel groups rows by kind. */
+    readonly kind: 'day' | 'model' | 'pool';
+    /** The row's own label: a calendar day, a model id, or a pool name. */
+    readonly label: string;
+    /** Calls or requests the endpoint counted. */
+    requests?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    /** Sum of the four token buckets, when the endpoint reports its own total. */
+    totalTokens?: number;
+    /** Spend the endpoint reported, denominated in {@link currency}. */
+    cost?: number;
+    /** Unit `cost` is denominated in, when the row states one. */
+    currency?: string;
 }
 /** Manual balance fallback for one provider id. */
 export interface QuotaBalanceEstimate {

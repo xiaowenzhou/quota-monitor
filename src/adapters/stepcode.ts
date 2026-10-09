@@ -15,8 +15,8 @@
 
 import { QuotaRequestError, requestJson } from '../http.ts'
 import { arrayUnder, clampPercent, isRecord, objectUnder, pickNumber, pickString, round1, upcomingIso } from '../parse.ts'
-import type { QuotaBudgetPool, QuotaPlanWindow } from '../types.ts'
-import { bearer, requireKey } from './contract.ts'
+import type { QuotaBudgetPool, QuotaGatewayUsage, QuotaPlanWindow } from '../types.ts'
+import { bearer, gatewayUsageRow, requireKey } from './contract.ts'
 import type { QuotaAccountReading, QuotaAdapter, QuotaAdapterContext } from './contract.ts'
 
 /** Path of the desk account endpoint, relative to the gateway origin. */
@@ -133,15 +133,22 @@ export const stepcode: QuotaAdapter = {
     const now = context.now()
     const account = readAmounts(objectUnder(body, 'usage_summary'))
     const pools: QuotaBudgetPool[] = []
+    const usage: QuotaGatewayUsage[] = []
     for (const row of arrayUnder(body, 'budget_pool_usages') ?? []) {
+      const name = pickString(row, POOL_NAME_KEYS) ?? `#${pools.length + 1}`
       const amounts = readAmounts(row)
-      if (amounts === undefined) continue
-      pools.push({
-        name: pickString(row, POOL_NAME_KEYS) ?? `#${pools.length + 1}`,
-        remaining: amounts.remaining,
-        ...amounts.limit === undefined ? {} : { limit: amounts.limit },
-        ...amounts.percentUsed === undefined ? {} : { percentUsed: amounts.percentUsed },
-      })
+      if (amounts !== undefined) {
+        pools.push({
+          name,
+          remaining: amounts.remaining,
+          ...amounts.limit === undefined ? {} : { limit: amounts.limit },
+          ...amounts.percentUsed === undefined ? {} : { percentUsed: amounts.percentUsed },
+        })
+      }
+      // A pool reports its tokens beside its allowance, so a pool whose
+      // remainder is unreadable still contributes the usage it disclosed.
+      const usageRow = gatewayUsageRow('pool', name, row)
+      if (usageRow !== undefined) usage.push(usageRow)
     }
     if (account === undefined && pools.length === 0) {
       throw new QuotaRequestError('invalid-response', 'StepCode desk response has no usable figures')
@@ -164,6 +171,7 @@ export const stepcode: QuotaAdapter = {
       ...account?.unlimited === true ? { unlimited: true } : {},
       ...billing.length === 0 ? {} : { planWindows: Object.freeze(billing) },
       ...pools.length === 0 ? {} : { budgetPools: Object.freeze(pools) },
+      ...usage.length === 0 ? {} : { usage: Object.freeze(usage) },
     }
   },
 }

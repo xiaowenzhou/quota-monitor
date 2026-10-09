@@ -59,6 +59,14 @@ export const zh = {
   'pool.remaining': '{name}：剩余 {amount}',
   'pool.remainingOfLimit': '{name}：剩余 {amount} / {limit}',
 
+  'gateway.heading': '账号用量（网关报告）',
+  'gateway.hint': '该账号端点自行上报的用量，按凭据分开，与上方本地统计无关',
+  'gateway.days': '按天',
+  'gateway.models': '按模型',
+  'gateway.pools': '按预算池',
+  'gateway.requests': '{count} 次调用',
+  'gateway.more': '仅显示前 {count} 行',
+
   'reset.expired': '窗口已到期',
   'reset.hours': '{at} 重置 · 还有 {hours} 小时 {minutes} 分',
   'reset.minutes': '{at} 重置 · 还有 {minutes} 分',
@@ -186,6 +194,14 @@ export const en = {
   'pools.heading': 'Budget pools',
   'pool.remaining': '{name}: {amount} left',
   'pool.remainingOfLimit': '{name}: {amount} of {limit} left',
+
+  'gateway.heading': 'Account usage (reported by the gateway)',
+  'gateway.hint': 'What this account endpoint reports for its own credential, split per key and independent of the local totals above',
+  'gateway.days': 'By day',
+  'gateway.models': 'By model',
+  'gateway.pools': 'By budget pool',
+  'gateway.requests': '{count} calls',
+  'gateway.more': 'Showing the first {count} rows',
 
   'reset.expired': 'Window elapsed',
   'reset.hours': 'Resets at {at} · {hours}h {minutes}m left',

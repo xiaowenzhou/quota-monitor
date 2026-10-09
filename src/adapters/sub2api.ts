@@ -10,9 +10,10 @@
  */
 
 import { QuotaRequestError, isFallthrough, requestJson } from '../http.ts'
-import { clampPercent, isRecord, numberOf, pickNumber, pickString, round1, upcomingIso } from '../parse.ts'
-import type { QuotaPlanWindow, QuotaPlanWindowKind } from '../types.ts'
-import { bearer, requireKey } from './contract.ts'
+import { arrayUnder, clampPercent, isRecord, numberOf, pickNumber, pickString, round1, upcomingIso } from '../parse.ts'
+import type { JsonRecord } from '../parse.ts'
+import type { QuotaGatewayUsage, QuotaPlanWindow, QuotaPlanWindowKind } from '../types.ts'
+import { bearer, gatewayUsageRow, requireKey } from './contract.ts'
 import type { QuotaAccountReading, QuotaAdapter, QuotaAdapterContext } from './contract.ts'
 
 /** Rate-limit window ids the protocol publishes, mapped to the rows the panel labels. */
@@ -22,6 +23,14 @@ const WINDOW_KINDS: Readonly<Record<string, QuotaPlanWindowKind>> = Object.freez
   '7d': 'weekly',
   '30d': 'monthly',
 })
+
+/**
+ * Ceiling on the gateway-reported usage rows carried for one account.
+ *
+ * A panel lists a handful of them; the cap exists so that a gateway answering
+ * with an unbounded ledger cannot grow the account payload without limit.
+ */
+const MAX_USAGE_ROWS = 90
 
 /** Calendar periods a subscription answer meters, in ascending order. */
 const SUBSCRIPTION_PERIODS: readonly (readonly [string, QuotaPlanWindowKind])[] = Object.freeze([
@@ -113,6 +122,7 @@ export function readSub2apiUsage(body: unknown, now: number): QuotaAccountReadin
   }
 
   const plan = pickString(body, ['planName', 'plan_name', 'plan'])
+  const usage = gatewayUsage(body)
   if (metersWindows(body)) {
     const subscription = body['subscription']
     const windows = isRecord(subscription) ? subscriptionWindows(subscription) : quotaWindows(body, now)
@@ -121,6 +131,7 @@ export function readSub2apiUsage(body: unknown, now: number): QuotaAccountReadin
         mode: 'subscription',
         plan: plan ?? 'Sub2API',
         planWindows: Object.freeze(windows),
+        ...usage.length === 0 ? {} : { usage },
       }
     }
     // A plan that meters spend without publishing a period ceiling states its
@@ -135,6 +146,7 @@ export function readSub2apiUsage(body: unknown, now: number): QuotaAccountReadin
       remaining: metered,
       currency: pickString(body, ['unit', 'currency']) ?? 'USD',
       ...plan === undefined ? {} : { plan },
+      ...usage.length === 0 ? {} : { usage },
     }
   }
 
@@ -147,7 +159,36 @@ export function readSub2apiUsage(body: unknown, now: number): QuotaAccountReadin
     remaining,
     currency: pickString(body, ['unit', 'currency']) ?? 'USD',
     ...plan === undefined ? {} : { plan },
+    ...usage.length === 0 ? {} : { usage },
   }
+}
+
+/**
+ * The usage tables the endpoint publishes about this credential.
+ *
+ * `/v1/usage` answers with the key's own ledger: one row per day and one per
+ * model. Reading them is what makes a per-credential split possible at all, and
+ * the cap keeps a talkative gateway from putting an unbounded payload on the
+ * wire.
+ * @param body - the parsed answer.
+ * @returns the rows, day rows before model rows.
+ */
+function gatewayUsage(body: JsonRecord): readonly QuotaGatewayUsage[] {
+  // The ledger rows report an amount without restating the unit, which the
+  // answer carries once for the whole account.
+  const unit = pickString(body, ['unit', 'currency'])
+  const rows: QuotaGatewayUsage[] = []
+  const push = (row: QuotaGatewayUsage | undefined): void => {
+    if (row === undefined) return
+    rows.push(row.currency === undefined && unit !== undefined ? { ...row, currency: unit } : row)
+  }
+  for (const entry of arrayUnder(body, 'daily_usage') ?? []) {
+    push(gatewayUsageRow('day', pickString(entry, ['date', 'day']), entry))
+  }
+  for (const entry of arrayUnder(body, 'model_stats') ?? []) {
+    push(gatewayUsageRow('model', pickString(entry, ['model', 'model_name']), entry))
+  }
+  return Object.freeze(rows.slice(0, MAX_USAGE_ROWS))
 }
 
 /** The origin an adapter addresses, so a base URL carrying a path still resolves. */

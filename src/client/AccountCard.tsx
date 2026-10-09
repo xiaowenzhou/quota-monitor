@@ -13,13 +13,14 @@ import type {
   QuotaAccountMode,
   QuotaAccountStatus,
   QuotaBudgetPool,
+  QuotaGatewayUsage,
   QuotaPlanWindow,
   QuotaPlanWindowKind,
   QuotaProviderEntry,
   QuotaWarningLevel,
 } from '../types.ts'
 import type { QuotaTranslate } from './UsagePanel.tsx'
-import { fmtAmount, fmtTime, initialsOf, resetLabel } from './format.ts'
+import { fmtAmount, fmtNumber, fmtTime, fmtTokens, initialsOf, resetLabel } from './format.ts'
 import css from './UsagePanel.module.css'
 
 /** Dictionary key labelling each plan window. */
@@ -146,6 +147,73 @@ function PoolRow({ t, pool }: { t: QuotaTranslate; pool: QuotaBudgetPool }) {
   </li>
 }
 
+/** Rows of one gateway table the card shows before it says how many it hides. */
+const GATEWAY_ROWS = 6
+
+/** Dictionary key naming each gateway usage table, in display order. */
+const GATEWAY_GROUPS: Readonly<Record<QuotaGatewayUsage['kind'], 'gateway.days'
+  | 'gateway.models' | 'gateway.pools'>> = Object.freeze({
+  day: 'gateway.days',
+  model: 'gateway.models',
+  pool: 'gateway.pools',
+})
+
+/** Display order of the gateway usage tables. */
+const GATEWAY_ORDER: readonly QuotaGatewayUsage['kind'][] = Object.freeze(['day', 'model', 'pool'])
+
+/** The endpoint's own token total for a row: its own, or the four buckets summed. */
+function gatewayTokens(row: QuotaGatewayUsage): number | undefined {
+  if (row.totalTokens !== undefined) return row.totalTokens
+  const buckets = [row.inputTokens, row.outputTokens, row.cacheReadTokens, row.cacheWriteTokens]
+  const present = buckets.filter((value): value is number => value !== undefined)
+  return present.length === 0 ? undefined : present.reduce((total, value) => total + value, 0)
+}
+
+/** One row of a gateway table: its label and the figures the endpoint reported. */
+function GatewayRow({ t, row }: { t: QuotaTranslate; row: QuotaGatewayUsage }) {
+  const parts: string[] = []
+  if (row.requests !== undefined) parts.push(t('gateway.requests', { count: fmtNumber(row.requests) }))
+  const tokens = gatewayTokens(row)
+  if (tokens !== undefined) parts.push(fmtTokens(tokens))
+  if (row.cost !== undefined) parts.push(fmtAmount(row.cost, row.currency))
+  return <li className={css.gatewayRow}>
+    <span className={css.gatewayLabel} title={row.label}>{row.label}</span>
+    <span className={css.gatewayValue}>{parts.join(' · ')}</span>
+  </li>
+}
+
+/**
+ * Usage the account endpoint reported for its own credential.
+ *
+ * This is the gateway's ledger, not this plugin's fold: it is what makes two
+ * keys behind one provider route tell themselves apart, and it covers calls
+ * that predate this process.
+ */
+function GatewayUsage({ t, usage }: { t: QuotaTranslate; usage: readonly QuotaGatewayUsage[] }) {
+  const groups = GATEWAY_ORDER
+    .map(kind => [kind, usage.filter(row => row.kind === kind)] as const)
+    .filter(([, rows]) => rows.length > 0)
+  if (groups.length === 0) return null
+
+  return <div className={css.pools}>
+    <span className={css.poolsTitle}>{t('gateway.heading')}</span>
+    <p className={css.gatewayHint}>{t('gateway.hint')}</p>
+    {groups.map(([kind, rows]) => <div key={kind}>
+      <span className={css.gatewayGroup}>{t(GATEWAY_GROUPS[kind])}</span>
+      <ul className={css.poolList}>
+        {rows.slice(0, GATEWAY_ROWS).map(row => <GatewayRow
+          key={`${row.kind}:${row.label}`}
+          t={t}
+          row={row}
+        />)}
+      </ul>
+      {rows.length <= GATEWAY_ROWS
+        ? null
+        : <span className={css.gatewayMore}>{t('gateway.more', { count: String(GATEWAY_ROWS) })}</span>}
+    </div>)}
+  </div>
+}
+
 /** The manual allowance input, shown when the provider publishes no account endpoint. */
 function ManualBalance({ t, provider, total, remaining, onChange }: {
   t: QuotaTranslate
@@ -268,6 +336,8 @@ export function AccountCard({
             {pools.map(pool => <PoolRow key={pool.name} t={t} pool={pool} />)}
           </ul>
         </div>}
+
+        {account.usage === undefined ? null : <GatewayUsage t={t} usage={account.usage} />}
 
         <p className={css.cardMeta}>
           {t('account.source', { adapter: account.adapter })}

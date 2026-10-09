@@ -7,14 +7,6 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-> **独立仓库。** 这是 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 工作区内开发的额度监控插件，在此以可独立安装的形式发布，供 DSH Web profile 直接挂载。它不是 DeepSeek 官方发布；包名保留上游 `@deepseek-ai` 作用域，因为 profile 的行名就是按它解析的，出处见 [NOTICE](NOTICE)。
->
-> ```sh
-> dsh plugin --profile web add github:xiaowenzhou/quota-monitor
-> ```
->
-> 装完重启 DSH。`lib/` 内是构建产物，安装时不会编译；源码树一并保留，供阅读以及在 deepseek-harness 检出内重建（在本目录执行 `pnpm exec tsc -b tsconfig.host.json`，再执行 `DSH_BUILD_FACE=host pnpm exec tsdown`）。
-
 ## 概述
 
 `dsh-extension-quota-monitor` 回答关于运行中 harness 的两个问题：已经花了多少，还剩多少。宿主半边通过十七个适配器读取各已配置提供商的账户端点，把每份已持久化的会话日志折叠为按天、按 `provider · model` 的 token 总量，并挂接 `llm/stream` 瀑布以维护实时计数。其侧边栏面板把每个受监控账户显示为一枚状态标签，并给出所选账户的数字、今日与本月与累计总量及其推算开销与预算进度条、每日用量日历、按天与按会话的明细，以及 CSV/JSON 导出。凭据不会离开宿主进程；读不到的账户会说明原因，而不是显示 0。
@@ -39,6 +31,7 @@ kind: "package-reference"
 - **一次一个账户** —— 所选标签的卡片显示该提供商公开的那一种：余额（剩余、已用、额度、币种）或订阅的方案窗口。
 - **方案窗口** —— 订阅账户把每个窗口渲染为一条已用占比进度条，各自带独立的重置倒计时：提供商自己的滚动会话窗口、5 小时、每日、每周、每月、订阅周期，以及独立的配额。
 - **预算池** —— AgentRouter 账户在账户余额之外，为每个预算池给出一行，各含该池自己的剩余与额度。
+- **账号用量** —— 账户端点若自行公布用量表，卡片下方会按天、按模型或按预算池逐行列出。这份账是该次读取所用凭据自己的，因此同一条 provider 路由背后的两把 Key 各自报自己的数字——这正是本地折叠做不到的那个拆分：模型请求只带路由名，从不带服务它的那把 Key。
 - **Token 分析** —— 今日、本月与累计，各自拆分为输入、输出、缓存读取、缓存写入，并给出今日缓存命中占计费输入的比例。
 - **推算开销** —— 一旦配置了 `pricing.rules`，每项总量、每天、每条路由行与每个会话都同时带上金额，并在旁边写明有多少次调用没有任何规则可定价。
 - **开销上限** —— `budgets.daily` 与 `budgets.monthly` 呈现为进度条，推算开销逼近上限时依次转为琥珀色与红色。
@@ -212,11 +205,11 @@ config:
 
 需要本包依赖的能力接缝或所遵循的约定时，请阅读这些页面。
 
-- [扩展子系统](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/extensions.zh.md) —— Cordis 扩展包如何组合与挂载。
-- [设置子系统](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/settings.zh.md) —— 账户读取所依据的提供商档案注册表。
-- [LLM 流式子系统](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/llm-streaming.zh.md) —— 本包为实时计数所挂接的瀑布。
-- [会话查询](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/session-query/session-query) —— 用量折叠读取的会话集合。
-- [存储域](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/storage/storage-domain) —— 折叠缓存所在的 KV 域层。
+- [扩展子系统](../../../docs/subsystems/extensions.zh.md) —— Cordis 扩展包如何组合与挂载。
+- [设置子系统](../../../docs/subsystems/settings.zh.md) —— 账户读取所依据的提供商档案注册表。
+- [LLM 流式子系统](../../../docs/subsystems/llm-streaming.zh.md) —— 本包为实时计数所挂接的瀑布。
+- [会话查询](../../session-query/session-query/README.zh.md) —— 用量折叠读取的会话集合。
+- [存储域](../../storage/storage-domain/README.zh.md) —— 折叠缓存所在的 KV 域层。
 
 <a id="model-experience"></a>
 ## 模型体验

@@ -362,6 +362,7 @@ export class QuotaMonitorService extends TypertRemoteService {
       ...reading.plan === undefined ? {} : { plan: reading.plan },
       ...reading.planWindows === undefined ? {} : { planWindows: reading.planWindows },
       ...reading.budgetPools === undefined ? {} : { budgetPools: reading.budgetPools },
+      ...reading.usage === undefined ? {} : { usage: reading.usage },
       ...warning === undefined ? {} : { warning },
     }
   }

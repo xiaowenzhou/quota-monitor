@@ -337,6 +337,38 @@ describe('sub2api', () => {
 
     expect(reading).toEqual({ mode: 'balance', remaining: 502.31810956, currency: 'USD', plan: 'Codex-hanamizzh' })
   })
+
+  it('carries the usage ledger the gateway reports for this key', async () => {
+    const adapter = adapterFor('sub2api')
+    const reading = await adapter?.read(context({
+      baseURL: 'https://relay.example.com',
+      fetchImpl: serve({
+        'https://relay.example.com/v1/usage': {
+          balance: 495.39,
+          unit: 'USD',
+          planName: '钱包余额',
+          daily_usage: [{ date: '2026-09-29', requests: 12, total_tokens: 1_629_770, actual_cost: 4.61 }],
+          model_stats: [{ model: 'claude-opus-5', requests: 12, input_tokens: 24, output_tokens: 29_894 }],
+        },
+      }),
+    }))
+
+    expect(reading).toMatchObject({
+      remaining: 495.39,
+      currency: 'USD',
+      usage: [
+        { kind: 'day', label: '2026-09-29', requests: 12, totalTokens: 1_629_770, cost: 4.61, currency: 'USD' },
+        {
+          kind: 'model',
+          label: 'claude-opus-5',
+          requests: 12,
+          inputTokens: 24,
+          outputTokens: 29_894,
+          currency: 'USD',
+        },
+      ],
+    })
+  })
 })
 
 describe('stepcode', () => {
@@ -412,6 +444,32 @@ describe('stepcode', () => {
         'https://co.air-outer.com/desk/v1/stepcode/user/info': { code: 0, data: { username: 'someone' } },
       }),
     }))).rejects.toThrow(/no usable figures/)
+  })
+
+  it('reports the tokens each pool disclosed, even one whose allowance is unreadable', async () => {
+    const adapter = adapterFor('stepcode')
+    const reading = await adapter?.read(context({
+      baseURL: 'https://co.air-outer.com',
+      fetchImpl: serve({
+        'https://co.air-outer.com/desk/v1/stepcode/user/info': {
+          code: 0,
+          data: {
+            usage_summary: { total: 5_000, remaining: 5_000 },
+            budget_pool_usages: [
+              { pool_name: '二组', total: 5_000, remaining: 5_000, total_tokens: 12_345, total_calls: 7 },
+              { pool_name: '三组', total_tokens: 900 },
+            ],
+          },
+        },
+      }),
+    }))
+
+    expect(reading?.usage).toEqual([
+      { kind: 'pool', label: '二组', requests: 7, totalTokens: 12_345 },
+      { kind: 'pool', label: '三组', totalTokens: 900 },
+    ])
+    // Only the pool that disclosed an allowance becomes a budget row.
+    expect(reading?.budgetPools?.map(pool => pool.name)).toEqual(['二组'])
   })
 })
 

@@ -219,6 +219,31 @@ describe('quota monitor usage panel', () => {
     expect(screen.getByText('deepseek · deepseek-chat')).toBeTruthy()
   })
 
+  it('shows the usage the gateway reported for the account credential', async () => {
+    const account: QuotaAccount = {
+      ...ACCOUNT,
+      usage: [
+        { kind: 'day', label: '2026-03-15', requests: 12, totalTokens: 1_620_000, cost: 4.61, currency: 'USD' },
+        { kind: 'model', label: 'claude-opus-5', requests: 12, inputTokens: 24, outputTokens: 29_894 },
+        { kind: 'pool', label: 'team-b', totalTokens: 5_000 },
+      ],
+    }
+    const { container } = render(<UsagePanel {...props(api({
+      getAccount: () => Promise.resolve(ok(account)),
+    }))} />)
+
+    expect(await screen.findByText('Account usage (reported by the gateway)')).toBeTruthy()
+    const text = container.textContent ?? ''
+    expect(text).toContain('By day')
+    expect(text).toContain('By model')
+    expect(text).toContain('By budget pool')
+    expect(text).toContain('2026-03-15')
+    expect(text).toContain('claude-opus-5')
+    expect(text).toContain('team-b')
+    // The day row states its own call count, token total, and the gateway's spend.
+    expect(text).toContain('12 calls · 1.62M · 4.61 USD')
+  })
+
   it('says so when no provider is configured instead of rendering an empty card', async () => {
     const empty: QuotaSnapshot = { ...SNAPSHOT, providers: [], rows: [] }
     render(<UsagePanel {...props(api({ getSnapshot: () => Promise.resolve(ok(empty)) }))} />)
