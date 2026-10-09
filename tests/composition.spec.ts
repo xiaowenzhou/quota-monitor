@@ -34,7 +34,6 @@ import type {
 } from '@deepseek-ai/dsh-credentials'
 import LlmRuntime, { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SettingsProvider from '@deepseek-ai/dsh-settings'
 import { installStubSeams } from './stubs.ts'
 
 /** A credential store with nothing in it, so no adapter sends a request. */
@@ -68,16 +67,6 @@ class NoCredentials extends CredentialProvider {
   }
 
   async deleteRecord(): Promise<void> {}
-}
-
-/** A settings store holding no provider profile, so the registry stays empty. */
-class EmptySettings extends SettingsProvider {
-  readonly writable = false
-  protected async load(): Promise<Record<string, unknown>> {
-    return {}
-  }
-
-  protected async persist(): Promise<void> {}
 }
 
 /** What the fixture's seam entry leaves for the test to drive and assert. */
@@ -150,7 +139,10 @@ async function boot(): Promise<Booted> {
     // Registering a Service inside a Loader entry without awaiting it keeps this
     // entry free of the activation the services themselves must complete.
     ctx.plugin(LlmRuntime)
-    ctx.plugin(EmptySettings)
+    // The forms API replaced the namespace-document provider this suite used to
+    // install; an empty `describe()` is the same "no provider profile" seam, and
+    // the monitor's settings read addresses both shapes structurally.
+    ctx.provide('settings', { describe: () => [] } as never)
     ctx.plugin(NoCredentials)
     const seams = installStubSeams(ctx)
     seams.sessionQuery.sessions = [{ id: 'session-folded', events: sessionLog() }]

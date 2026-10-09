@@ -15,26 +15,13 @@ import type {
   QuotaBudgetPool,
   QuotaGatewayUsage,
   QuotaPlanWindow,
-  QuotaPlanWindowKind,
   QuotaProviderEntry,
   QuotaWarningLevel,
 } from '../types.ts'
 import type { QuotaTranslate } from './UsagePanel.tsx'
 import { fmtAmount, fmtNumber, fmtTime, fmtTokens, initialsOf, resetLabel } from './format.ts'
+import { WINDOW_KEYS } from './windows.ts'
 import css from './UsagePanel.module.css'
-
-/** Dictionary key labelling each plan window. */
-const WINDOW_KEYS: Readonly<Record<QuotaPlanWindowKind, 'window.session' | 'window.fiveHour'
-  | 'window.daily' | 'window.weekly' | 'window.monthly' | 'window.billing'
-  | 'window.quota'>> = Object.freeze({
-  'session': 'window.session',
-  'five-hour': 'window.fiveHour',
-  'daily': 'window.daily',
-  'weekly': 'window.weekly',
-  'monthly': 'window.monthly',
-  'billing': 'window.billing',
-  'quota': 'window.quota',
-})
 
 /** Dictionary key naming each account status. */
 const STATUS_KEYS: Readonly<Record<QuotaAccountStatus, 'status.ok' | 'status.notConfigured'

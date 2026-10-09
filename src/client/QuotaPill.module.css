@@ -1,0 +1,76 @@
+/**
+ * Composer pill styling: one compact chip on the composer's tool row, beside
+ * the model selector it describes.
+ *
+ * Every colour comes from a `--dsw-alias-*` design token, so the pill follows
+ * the platform's themes like the rest of the composer chrome.
+ */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  max-width: 260px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pill:hover {
+  border-color: var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* A read in flight: the figures stay put and the dot pulses, so the pill never
+   collapses to a spinner mid-session. */
+.reading .dot {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.35; }
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.warning .dot {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.critical .dot {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.name {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+.window,
+.figure {
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.window + .window,
+.name + .window,
+.name + .figure {
+  padding-left: 6px;
+  border-left: 0.5px solid var(--dsw-alias-border-l2);
+}

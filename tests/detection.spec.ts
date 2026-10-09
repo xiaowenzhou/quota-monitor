@@ -1,6 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import zs from '@deepseek-ai/schemastery'
 import { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import type {
   CredentialInfo,
@@ -11,8 +10,6 @@ import type {
 } from '@deepseek-ai/dsh-credentials'
 import LlmRuntime, { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SettingsProvider from '@deepseek-ai/dsh-settings'
-import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { QuotaMonitorService } from '../src/index.ts'
 import { Config } from '../src/config.ts'
 import type { QuotaMonitorConfigInput } from '../src/config.ts'
@@ -49,14 +46,7 @@ class SilentAdapter extends LlmAdapter {
 }
 
 /** Serves one namespace section, so `profileOf` reads a real stored profile. */
-class RouteSettings extends SettingsProvider {
-  readonly writable = false
-  protected async load(): Promise<Record<string, unknown>> {
-    return { 'quota-route': { baseURL: BASE_URL, apiKeyEnv: KEY_REF } }
-  }
-
-  protected async persist(): Promise<void> {}
-}
+const ROUTE_SECTION = { baseURL: BASE_URL, apiKeyEnv: KEY_REF }
 
 /** Resolves only the reference the stored profile names. */
 class RouteCredentials extends CredentialProvider {
@@ -117,13 +107,14 @@ function stubFetch(routes: Record<string, unknown>): Call[] {
 async function start(config: QuotaMonitorConfigInput = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
-  await ctx.plugin(RouteSettings)
+  // The forms API replaced the namespace-document provider this suite used to
+  // install, so the stored profile arrives as the `describe()` row the monitor
+  // reads: one entry id, `quota-route`, holding the section that entry backs.
+  ctx.provide('settings', {
+    describe: () => [{ ns: 'quota-route', value: ROUTE_SECTION }],
+  } as never)
   await ctx.plugin(RouteCredentials)
   installStubSeams(ctx)
-  ctx.settings.register('quota-route' as SettingsNamespace & 'quota-route', zs.object({
-    baseURL: zs.string(),
-    apiKeyEnv: zs.string(),
-  }))
   await ctx.plugin(QuotaMonitorService, Config({ refresh: { enabled: false }, ...config }))
   ctx.llm.registerAdapter([ROUTE], new SilentAdapter())
   ctx.llm.registerConfigurableProviders([{

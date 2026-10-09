@@ -109,6 +109,11 @@ export const zh = {
   'provider.cache': '缓存命中 {percent}',
   'provider.lastDay': '最近 {date}',
 
+  'pill.label': '{provider} 额度',
+  'pill.window': '{label} {percent}',
+  'pill.unlimited': '不限量',
+  'pill.hint': '点击立即刷新',
+
   'budget.heading': '预算',
   'budget.daily': '今日预算',
   'budget.monthly': '本月预算',
@@ -258,6 +263,11 @@ export const en = {
   'provider.meta': '{calls} calls · {models} models',
   'provider.cache': 'Cache hit {percent}',
   'provider.lastDay': 'Last {date}',
+
+  'pill.label': '{provider} allowance',
+  'pill.window': '{label} {percent}',
+  'pill.unlimited': 'Unlimited',
+  'pill.hint': 'Click to refresh now',
 
   'budget.heading': 'Budgets',
   'budget.daily': 'Daily budget',

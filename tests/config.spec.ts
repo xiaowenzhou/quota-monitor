@@ -9,7 +9,6 @@ import type {
   ResolvedCredential,
 } from '@deepseek-ai/dsh-credentials'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
-import SettingsProvider from '@deepseek-ai/dsh-settings'
 import { QuotaMonitorService } from '../src/index.ts'
 import { Config, assertConsistent, resolveMonitor } from '../src/config.ts'
 import { installStubSeams } from './stubs.ts'
@@ -19,15 +18,6 @@ import { installStubSeams } from './stubs.ts'
  * budget sections, and the contradictions that must stop the plugin at load
  * rather than surface as an unreadable panel.
  */
-
-class EmptySettings extends SettingsProvider {
-  readonly writable = false
-  protected async load(): Promise<Record<string, unknown>> {
-    return {}
-  }
-
-  protected async persist(): Promise<void> {}
-}
 
 class NoCredentials extends CredentialProvider {
   async resolve(): Promise<ResolvedCredential | undefined> {
@@ -139,7 +129,10 @@ describe('assertConsistent', () => {
   it('stops the plugin at load rather than serving an unmeasurable budget', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
-    await ctx.plugin(EmptySettings)
+    // The forms API replaced the namespace-document provider this suite used to
+    // install; an empty `describe()` is the same "no provider profile" seam, and
+    // the monitor's settings read addresses both shapes structurally.
+    ctx.provide('settings', { describe: () => [] } as never)
     await ctx.plugin(NoCredentials)
     installStubSeams(ctx)
     try {

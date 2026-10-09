@@ -27,6 +27,7 @@ Mount this plugin when an operator wants spend and remaining allowance beside th
 
 ### What the panel reports
 
+- **In the composer** — the model selector's own route states its allowance on the tool row: a subscription's tightest plan windows (5-hour, weekly, …) or a wallet's remainder, toned by severity, with every window, its reset, the plan, and the reading's origin in the tooltip. A route whose provider publishes no account endpoint renders nothing, so the control never becomes noise.
 - **Every watched account in one rail** — one chip per provider with a severity dot, so a depleted account is visible without opening its card.
 - **One account at a time** — the selected chip's card shows either a balance (remaining, spent, allowance, currency) or a subscription's plan windows, whichever that provider publishes.
 - **Plan windows** — a subscription account reports each window as a used-share bar with its own reset countdown: the provider's rolling session window, five-hour, daily, weekly, monthly, the billing period, and a standalone quota.
@@ -186,6 +187,8 @@ The two halves share one wire vocabulary: the browser half never reads provider 
 | [`src/types.ts`](src/types.ts) | The account, usage, and snapshot types shared by both halves |
 | [`src/client/index.ts`](src/client/index.ts) | The browser mount, the dictionary registration, and the two slot registrations |
 | [`src/client/UsagePanel.tsx`](src/client/UsagePanel.tsx) | The panel root: data loading and the seven sections |
+| [`src/client/QuotaPill.tsx`](src/client/QuotaPill.tsx) | The composer pill: the selected route's windows or remainder, beside the model selector |
+| [`src/client/windows.ts`](src/client/windows.ts) | The plan-window vocabulary and the ranking both the account card and the pill read |
 | [`src/client/ProviderUsage.tsx`](src/client/ProviderUsage.tsx) | The per-provider token breakdown and each route's share of all tokens |
 
 ### How an account read resolves
@@ -249,6 +252,7 @@ The panel and its Host service add nothing to model context. Token figures are r
 - The session list identifies a session by id, latest activity, and routes; it carries no conversation title, because a title is prompt-derived text and the `quota_usage` fold holds counters and route ids only. Reading a title would require a second read of every session log the panel lists.
 - Spend is only as complete as the configured prices. No price list ships, a route no rule covers is reported as unpriced rather than free, and a rule states one flat per-million rate, so tiered, batch, and context-length pricing are not expressed.
 - An imported catalog is priced at one rate per model. Context-length tiers and off-peak rates such a document may carry are ignored, and an imported amount is never converted, so a document in another unit is refused rather than rescaled. Nothing is priced by time of day: a provider charging peak and off-peak rates for the same model is billed by this package at the single rate its rule states. `fuzzyMatch` compares normalized model ids, which can price a route whose id happens to normalize like a catalog entry; leaving it off keeps matching to what a rule literally says.
+- The composer pill states the Host's cached reading for the selected route and re-reads it once a minute and on click, so a figure can trail the endpoint by one refresh interval; the panel's card is where a read is forced.
 - Adapter coverage is endpoint-specific. A gateway publishing none of the recognized endpoints, and answering no fingerprint, reports `unsupported`; the declarative monitor and the manual allowance are the two workarounds.
 - Gateway detection recognizes one family. It probes a single public settings document, so a relay that hides that route, or serves it behind a login, still needs `monitors.<id>.adapter`.
 - AgentRouter discloses no unit with its account and pool figures, so the panel labels them `credits` and shows them exactly as reported. Its section keys are read from an ordered candidate list rather than one pinned spelling, so a renamed field degrades that row rather than reporting a wrong number.

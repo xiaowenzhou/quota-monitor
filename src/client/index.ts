@@ -1,7 +1,8 @@
 /**
  * Quota monitor browser half: mounts the generated `quotaMonitor` Remote
- * contribution, adds a sidebar rail entry, and registers the matching usage
- * panel in the layout's `main` slot.
+ * contribution, adds a sidebar rail entry, registers the matching usage panel in
+ * the layout's `main` slot, and puts the selected route's allowance on the
+ * composer's tool row beside the model selector.
  *
  * The rail entry's id and the `main` key are the same string: that is how the
  * sidebar addresses the panel it selects.
@@ -13,6 +14,8 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-gateway/client'
 // Type-only: pulls the `ctx.locale` merge owned by the locale plugin.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: pulls the ui-conversation SlotMap merge (the composer pill seat).
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls the ui-layout SlotMap merge (the root-scoped `main` seat).
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the ui-sidebar SlotMap merge (the `sidebar.panellist` seat).
@@ -21,11 +24,15 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import quotaMonitorRemote from '@deepseek-ai/dsh-extension-quota-monitor/remote'
 import { UsagePanel, type UsagePanelInjected } from './UsagePanel.tsx'
+import { QuotaPill, type QuotaPillInjected } from './QuotaPill.tsx'
 import { UsageIcon } from './UsageIcon.tsx'
 import { en, NS, zh } from './locales.ts'
 
 /** Sidebar entry id, and the `main` key it addresses. */
 const PANEL_ID = 'quota-monitor'
+
+/** Composer pill entry id, beside the model selector it describes. */
+const PILL_ID = 'quota-monitor-pill'
 
 /**
  * Required services: the typed Remote mount, the slot registry, and the
@@ -69,5 +76,16 @@ export async function apply(ctx: ClientContext): Promise<void> {
       locale: NS,
       inject: (): UsagePanelInjected => ({ quota: scope.remote.quotaMonitor }),
     }, UsagePanel))
+
+    // The composer's own seat, so the selected model's allowance sits beside the
+    // selector that chose it. The entry reads the session's model selection
+    // through the standard projection seat rather than another plugin's state.
+    scope.slots.inject('conversation.input.right', () => scope.slots.register({
+      name: 'conversation.input.right',
+      id: PILL_ID,
+      order: 90,
+      locale: NS,
+      inject: (): QuotaPillInjected => ({ quota: scope.remote.quotaMonitor }),
+    }, QuotaPill))
   })
 }

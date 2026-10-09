@@ -10,7 +10,6 @@ import type {
 } from '@deepseek-ai/dsh-credentials'
 import LlmRuntime, { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SettingsProvider from '@deepseek-ai/dsh-settings'
 import { QuotaMonitorService } from '../src/index.ts'
 import { Config } from '../src/config.ts'
 import { installStubSeams } from './stubs.ts'
@@ -38,15 +37,6 @@ class ScriptedAdapter extends LlmAdapter {
     void options
     for (const chunk of entry) yield chunk
   }
-}
-
-class EmptySettings extends SettingsProvider {
-  readonly writable = false
-  protected async load(): Promise<Record<string, unknown>> {
-    return {}
-  }
-
-  protected async persist(): Promise<void> {}
 }
 
 class NoCredentials extends CredentialProvider {
@@ -84,7 +74,10 @@ class NoCredentials extends CredentialProvider {
 async function start(script: Array<StreamChunk[] | Error>): Promise<{ ctx: Context; llm: LlmRuntime }> {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
-  await ctx.plugin(EmptySettings)
+  // The forms API replaced the namespace-document provider this suite used to
+  // install; an empty `describe()` is the same "no provider profile" seam, and
+  // the monitor's settings read addresses both shapes structurally.
+  ctx.provide('settings', { describe: () => [] } as never)
   await ctx.plugin(NoCredentials)
   installStubSeams(ctx)
   // Background rounds are disabled so no test depends on a timer firing.
