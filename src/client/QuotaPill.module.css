@@ -81,6 +81,55 @@
   border-left: 0.5px solid var(--dsw-alias-border-l2);
 }
 
+/* The composer's control row is `flex-wrap: wrap` with `.trailing { flex: none }`
+   (ui-conversation InputBar.module.css), so this pill's width lands on that row
+   whole: measured, the full pill makes the row need 220px more than the same row
+   without it, and the model/send group drops to a second line below that width.
+   The pill therefore folds down as its own container narrows, at the composer
+   row's two existing cut points (the anonymous container is InputBar `.row`).
+   The provider name goes first — the model trigger beside it already names the
+   route, the open reading restates the name in its heading, and the platform's
+   own permission chip folds its label at the same 460px — and the second window
+   follows, since the tighter window is the one worth the width. Below 460px only
+   the severity dot remains, exactly the chip's icon-only form. */
+
+@container (max-width: 680px) {
+  .name {
+    display: none;
+  }
+
+  /* The `+` selector still matches a `display: none` sibling, so the separator
+     the hidden name used to carry has to be given back here. */
+  .name + .figure,
+  .name + .window {
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .window ~ .window {
+    display: none;
+  }
+
+  .pill {
+    max-width: 170px;
+  }
+}
+
+/* The composer's own compact breakpoint (InputBar.module.css narrows the row's
+   gap at 560), where the last figure follows the name: a severity dot alone
+   still says whether the route is close to its allowance, and the reading is
+   one click away. */
+@container (max-width: 560px) {
+  .figure,
+  .window {
+    display: none;
+  }
+
+  .pill {
+    max-width: 40px;
+  }
+}
+
 /* The reading behind the pill: a floating card, portaled to the body and
    placed from the pill's measured rect by `useAnchoredPosition` (inline
    `left`/`top`). Geometry therefore lives in the hook, and this rule keeps
