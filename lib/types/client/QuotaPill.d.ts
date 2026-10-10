@@ -16,11 +16,17 @@
  * own, so the seat is occupied even while the rival says nothing — and this pill
  * is the only one that would fill that silence.
  *
- * The reading is placed by the stylesheet alone — `.panel` is absolutely
- * positioned inside the relatively-positioned pill, which is how
- * `dsh-cline-pass` anchors its own card — so nothing is measured, portaled, or
- * clamped at runtime, and the popup cannot drift away from the control that
- * opened it.
+ * The reading is portaled to `document.body` and placed by
+ * {@link useAnchoredPosition} from the pill's own rect — the platform's own
+ * popover contract (see ui-schedule's `PickerPopover`). It has to be, for two
+ * reasons a narrower center column makes visible at once: the composer seat is
+ * a stacking context (ConversationRoot's own note says it caps an in-card
+ * popup's z-index), and the seat also scrolls and clips. A reading laid out
+ * inside the card therefore leans out of the column and gets cut once the
+ * sidebar takes width, and `right: 0` against a pill that has the model
+ * selector beside it points three hundred pixels leftward for no reason the
+ * reader can see. From a body portal the panel escapes both, and the hook
+ * clamps it inside the viewport and re-places it on scroll and resize.
  *
  * The route comes from the session's own `modelSelection` projection, so the
  * pill follows the model the next request will use rather than the account

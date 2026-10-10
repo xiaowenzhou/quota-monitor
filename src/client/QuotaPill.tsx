@@ -16,11 +16,17 @@
  * own, so the seat is occupied even while the rival says nothing — and this pill
  * is the only one that would fill that silence.
  *
- * The reading is placed by the stylesheet alone — `.panel` is absolutely
- * positioned inside the relatively-positioned pill, which is how
- * `dsh-cline-pass` anchors its own card — so nothing is measured, portaled, or
- * clamped at runtime, and the popup cannot drift away from the control that
- * opened it.
+ * The reading is portaled to `document.body` and placed by
+ * {@link useAnchoredPosition} from the pill's own rect — the platform's own
+ * popover contract (see ui-schedule's `PickerPopover`). It has to be, for two
+ * reasons a narrower center column makes visible at once: the composer seat is
+ * a stacking context (ConversationRoot's own note says it caps an in-card
+ * popup's z-index), and the seat also scrolls and clips. A reading laid out
+ * inside the card therefore leans out of the column and gets cut once the
+ * sidebar takes width, and `right: 0` against a pill that has the model
+ * selector beside it points three hundred pixels leftward for no reason the
+ * reader can see. From a body portal the panel escapes both, and the hook
+ * clamps it inside the viewport and re-places it on scroll and resize.
  *
  * The route comes from the session's own `modelSelection` projection, so the
  * pill follows the model the next request will use rather than the account
@@ -29,10 +35,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import type { CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the ui-conversation SlotMap merge declaring this seat.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QuotaAccount, QuotaGatewayUsage, QuotaPlanWindow } from '../types.ts'
 import type { QuotaMonitorApi, QuotaTranslate } from './UsagePanel.tsx'
 import { fmtAmount, fmtNumber, fmtPercent, fmtTime, fmtTokens, resetLabel } from './format.ts'
@@ -49,6 +57,16 @@ const GATEWAY_ROWS = 4
 
 /** How often the pill re-reads the Host's cached reading. */
 const POLL_MS = 60_000
+
+/** Gap between the pill and the reading it floats, and the viewport inset. */
+const PANEL_GAP = 8
+const PANEL_MARGIN = 12
+
+/**
+ * Unplaced portal frame: laid out at the viewport origin but left unpainted
+ * until the measuring pass in the same commit has placed it.
+ */
+const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
 
 /** Display order of the gateway usage tables. */
 const GATEWAY_ORDER: readonly QuotaGatewayUsage['kind'][] = Object.freeze(['day', 'model', 'pool'])
@@ -161,12 +179,21 @@ export function QuotaPill({ t, quota, rivals, useProjection }: QuotaPillProps) {
   const [reading, setReading] = useState(false)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLSpanElement>(null)
-  // The reading hangs off the pill itself — `.panel` is absolutely positioned
-  // inside this relatively-positioned root — so opening it needs no measuring,
-  // no portal, and no clamp: the stylesheet both places it and keeps it with
-  // the control. The root still contains the panel, so an outside pointer is
-  // the only thing that dismisses it.
-  useDismissOnOutsidePointer(rootRef, open, setOpen)
+  // The reading is portaled to the body and placed from the pill's own rect,
+  // so the composer's clipping and stacking context cannot crop it. The root
+  // still counts as the anchor, and the panel is passed as the portal, so a
+  // pointerdown in either place keeps it open.
+  const panelRef = useRef<HTMLDivElement>(null)
+  const position = useAnchoredPosition({
+    open,
+    anchorRef: rootRef,
+    panelRef,
+    side: 'top',
+    align: 'end',
+    gap: PANEL_GAP,
+    margin: PANEL_MARGIN,
+  })
+  useDismissOnOutsidePointer(rootRef, open, setOpen, panelRef)
 
   const read = useCallback(async (id: string, refresh: boolean) => {
     setReading(true)
@@ -235,10 +262,12 @@ export function QuotaPill({ t, quota, rivals, useProjection }: QuotaPillProps) {
         : null}
     </button>
 
-    {!open ? null : <div
+    {!open ? null : createPortal(<div
+      ref={panelRef}
       role="dialog"
       aria-label={t('pill.details', { provider: account.name })}
       className={css.panel}
+      style={position ?? MEASURE_STYLE}
     >
       <div className={css.panelHead}>
         <span className={css.panelName}>{account.name}</span>
@@ -311,6 +340,6 @@ export function QuotaPill({ t, quota, rivals, useProjection }: QuotaPillProps) {
         {' · '}
         {t('account.source', { adapter: account.adapter })}
       </p>
-    </div>}
+    </div>, document.body)}
   </span>
 }

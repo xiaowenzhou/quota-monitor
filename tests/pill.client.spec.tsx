@@ -194,6 +194,22 @@ describe('quota pill', () => {
     expect(reading.getByText('claude-opus-5')).toBeTruthy()
   })
 
+  it('portals the reading to the body, clear of the composer\'s clipping', async () => {
+    const dialog = await opened(WALLET, 'ktc-claude')
+    const trigger = screen.getByRole('button', { name: 'KTC allowance' })
+
+    // A body portal is the whole fix: the composer seat clips and stacks its
+    // own children, which cut the reading off once the sidebar took width, so
+    // the card must not be a descendant of the pill at all.
+    expect(dialog.parentElement).toBe(document.body)
+    expect(trigger.contains(dialog)).toBe(false)
+
+    // And a click inside the portal is still a click inside the reading: the
+    // outside-pointer dismissal must treat the portaled card as its own.
+    fireEvent.pointerDown(dialog)
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
   it('forces a read from inside the reading', async () => {
     const getAccount = vi.fn((request: { refresh?: boolean }) => Promise.resolve(ok(WALLET)))
     render(<QuotaPill {...props({ ...api(WALLET), getAccount }, 'ktc-claude')} />)
