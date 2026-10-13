@@ -23,6 +23,17 @@ const MIN_INTERVAL_MS = 10_000
 /** Longest accepted refresh interval (24 hours). */
 const MAX_INTERVAL_MS = 86_400_000
 
+/**
+ * The credential-reference grammar this plugin accepts in configuration.
+ *
+ * The credentials seam owns the name space, but its own validator is not
+ * imported here: a plugin may be installed twice in one process, and a marker
+ * that only one installation's module registry can reproduce would then reject
+ * valid names. The grammar is fixed, so this copy is the configuration's own
+ * acceptance rule and a name it rejects never reaches the seam.
+ */
+export const CREDENTIAL_REF_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+
 /** How often accounts and usage are re-read. */
 export interface QuotaRefreshConfig {
   /**
@@ -123,6 +134,16 @@ export interface QuotaMonitorEntry {
   usageBaseURL?: string
   /** Credential reference the adapter reads, when it differs from the provider key. */
   credentialRef?: string
+  /**
+   * Credential references this route's account is read with, one reading each.
+   *
+   * Naming several is how one provider route is monitored key by key: the
+   * endpoint returns what that key itself has left, so a deployment that spreads
+   * traffic across keys sees each key's own figure. Non-empty replaces
+   * {@link credentialRef} and the provider's own key entirely; empty or absent
+   * leaves the route read once with its own credential.
+   */
+  credentialRefs?: string[]
   /**
    * Whether this route's account endpoint may be reached over plaintext `http:`
    * although its host is not on this machine.
@@ -247,6 +268,7 @@ const monitorEntry = zs.object({
   adapter: adapterId,
   usageBaseURL: zs.string(),
   credentialRef: zs.string(),
+  credentialRefs: zs.array(zs.string()),
   allowPlaintextEndpoint: zs.boolean(),
   allowedHosts: zs.array(zs.string()),
   warningRemaining: zs.number(),
@@ -317,8 +339,13 @@ export const Config: zs<QuotaMonitorConfigInput, QuotaMonitorConfig> = zs.object
  * it — neither an inline rule nor an imported document — could only ever report
  * `unknown`; that is a configuration mistake rather than a state worth
  * rendering, and it fails here at load.
+ *
+ * A monitored credential list has to name readable credentials: a name outside
+ * the reference grammar could never resolve, and a repeat would draw the same
+ * reading twice while hiding that the deployment expected another key.
  * @param config - the validated plugin config.
- * @throws {Error} when a budget is configured with no price behind it.
+ * @throws {Error} when a budget is configured with no price behind it, or a
+ * monitored credential list carries an invalid or repeated reference.
  */
 export function assertConsistent(config: QuotaMonitorConfig): void {
   const budgeted = config.budgets.daily !== undefined || config.budgets.monthly !== undefined
@@ -332,6 +359,18 @@ export function assertConsistent(config: QuotaMonitorConfig): void {
   }
   if (config.budgets.criticalPercent < config.budgets.warningPercent) {
     throw new Error('quota monitor: budgets.criticalPercent must not be below budgets.warningPercent')
+  }
+  for (const [id, entry] of Object.entries(config.monitors)) {
+    const refs = entry.credentialRefs
+    if (refs === undefined) continue
+    for (const ref of refs) {
+      if (!CREDENTIAL_REF_PATTERN.test(ref)) {
+        throw new Error(`quota monitor: monitors.${id}.credentialRefs names "${ref}", which is not a credential reference`)
+      }
+    }
+    if (new Set(refs).size !== refs.length) {
+      throw new Error(`quota monitor: monitors.${id}.credentialRefs repeats a credential reference`)
+    }
   }
 }
 

@@ -101,6 +101,12 @@ export interface QuotaAccount {
   status: QuotaAccountStatus
   /** The adapter that produced the reading, for the card's origin line. */
   adapter: string
+  /**
+   * Credential reference this reading was taken with, when the route was read
+   * through a named credential. Names only — a credential value never crosses
+   * this boundary.
+   */
+  readonly credentialRef?: string
   /** Epoch ms of the reading. */
   fetchedAt: number
   /**
@@ -186,13 +192,26 @@ export interface QuotaBalanceEstimate {
 export interface QuotaProviderEntry {
   readonly id: string
   name: string
+  /** Mode of {@link accounts}[0], the route's first monitored credential. */
   mode: QuotaAccountMode
   /** The adapter that would serve this provider's account read. */
   adapter: string
-  /** Latest known status, so the selector can mark a failing provider. */
+  /** Latest known status of {@link accounts}[0]. */
   status: QuotaAccountStatus
-  /** Latest known severity, so the selector can mark a draining account. */
+  /** Latest known severity of {@link accounts}[0], so the selector can mark a draining account. */
   warning?: QuotaWarningLevel
+  /**
+   * Credential references this route's account is read with, in configuration
+   * order. Empty means the route has one slot read with whatever credential its
+   * own profile (or `monitors.<id>.credentialRef`) names, which may be none.
+   */
+  credentialRefs: readonly string[]
+  /**
+   * Readings of {@link credentialRefs}, one per credential read so far and in
+   * the same order. A route not yet read carries none, so a selector can draw
+   * every monitored credential before the first answer arrives.
+   */
+  accounts: readonly QuotaAccount[]
 }
 
 /** Four disjoint token buckets. Reasoning tokens are already inside `outputTokens`. */
@@ -436,6 +455,12 @@ export interface QuotaSnapshot {
 export interface QuotaAccountRequest {
   /** Provider route whose account is read. */
   provider: string
+  /**
+   * Credential reference of the reading to answer with. Absent reads the
+   * route's first monitored credential — its own key unless
+   * `monitors.<id>.credentialRefs` names other credentials.
+   */
+  credentialRef?: string
   /** Bypass the cached reading and query the endpoint again. */
   refresh?: boolean
 }

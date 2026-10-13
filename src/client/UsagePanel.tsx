@@ -39,6 +39,8 @@ import css from './UsagePanel.module.css'
 /** The mounted `ctx.remote.quotaMonitor` face the panel talks to. */
 export interface QuotaMonitorApi {
   getSnapshot(): Promise<RemoteResult<QuotaSnapshot>>
+  readPendingAccounts(): Promise<RemoteResult<QuotaSnapshot>>
+  refreshAccounts(): Promise<RemoteResult<QuotaSnapshot>>
   getAccount(request: QuotaAccountRequest): Promise<RemoteResult<QuotaAccount>>
   getUsage(request: QuotaUsageRequest): Promise<RemoteResult<QuotaUsageReport>>
   exportUsage(request: QuotaExportRequest): Promise<RemoteResult<QuotaExportDocument>>
@@ -82,72 +84,101 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
   /** Every route together, which is what the provider comparison reads. */
   const [allUsage, setAllUsage] = useState<QuotaUsageReport | undefined>()
   const [provider, setProvider] = useState<string | undefined>()
+  /** Credential reference of the shown reading; absent is the route's own key. */
+  const [credential, setCredential] = useState<string | undefined>()
   const [month, setMonth] = useState<string | undefined>()
   const [selectedDay, setSelectedDay] = useState<string | undefined>()
   const [busy, setBusy] = useState(false)
-  const selection = useRef(provider)
-  const requests = useRef({ usage: 0, account: 0 })
-  selection.current = provider
+  const selection = useRef({ id: provider, credentialRef: credential })
+  const requests = useRef({ usage: 0, account: 0, snapshot: 0 })
+  selection.current = { id: provider, credentialRef: credential }
 
   useEffect(() => () => {
     requests.current.usage++
     requests.current.account++
   }, [])
 
-  const loadSnapshot = useCallback(async () => {
-    const result = await quota.getSnapshot()
-    if (!result.ok) return
-    setSnapshot(result.value)
+  const applySnapshot = useCallback((value: QuotaSnapshot) => {
+    setSnapshot(value)
     // The first provider becomes the selection only while none is held, so a
     // background refresh never moves the card out from under the reader.
-    setProvider(current => current ?? result.value.providers[0]?.id)
-  }, [quota])
+    setProvider(current => current ?? value.providers[0]?.id)
+  }, [])
+
+  const loadSnapshot = useCallback(async () => {
+    const request = ++requests.current.snapshot
+    const result = await quota.getSnapshot()
+    if (!result.ok || request !== requests.current.snapshot) return
+    applySnapshot(result.value)
+  }, [quota, applySnapshot])
+
+  /**
+   * Open the panel: read the monitored credentials no round has taken yet and
+   * adopt the snapshot that answers.
+   *
+   * This is the whole opening round trip. Every key a deployment monitors then
+   * states its own figure, while readings a background round already took are
+   * served from cache instead of being queried again.
+   */
+  const loadPending = useCallback(async () => {
+    const request = ++requests.current.snapshot
+    const result = await quota.readPendingAccounts()
+    if (!result.ok || request !== requests.current.snapshot) return
+    applySnapshot(result.value)
+  }, [quota, applySnapshot])
 
   const loadUsage = useCallback(async (id: string | undefined, refresh: boolean) => {
-    if (selection.current !== id) return
+    if (selection.current.id !== id) return
     const request = ++requests.current.usage
     const result = await quota.getUsage({ refresh, ...id === undefined ? {} : { provider: id } })
     if (request !== requests.current.usage) return
-    if (result.ok && selection.current === id) setUsage(result.value)
+    if (result.ok && selection.current.id === id) setUsage(result.value)
     // A refresh completes the Host fold before the cached comparison is read.
     const all = await quota.getUsage({})
     if (all.ok && request === requests.current.usage) setAllUsage(all.value)
   }, [quota])
 
-  const loadAccount = useCallback(async (id: string, refresh: boolean) => {
-    if (selection.current !== id) return
+  const loadAccount = useCallback(async (id: string, credentialRef: string | undefined, refresh: boolean) => {
+    if (selection.current.id !== id || selection.current.credentialRef !== credentialRef) return
     const request = ++requests.current.account
-    const result = await quota.getAccount({ provider: id, refresh })
-    if (result.ok && request === requests.current.account && selection.current === id) {
+    const result = await quota.getAccount({
+      provider: id,
+      ...credentialRef === undefined ? {} : { credentialRef },
+      refresh,
+    })
+    if (result.ok && request === requests.current.account
+      && selection.current.id === id && selection.current.credentialRef === credentialRef) {
       setAccount(result.value)
     }
   }, [quota])
 
   useEffect(() => {
-    void loadSnapshot()
-  }, [loadSnapshot])
+    void loadPending()
+  }, [loadPending])
 
   useEffect(() => {
     if (provider === undefined) return
     setAccount(undefined)
     setUsage(undefined)
-    void loadAccount(provider, false)
+    void loadAccount(provider, credential, false)
     // The statistics follow the same selection as the account card.
     void loadUsage(provider, false)
-  }, [provider, loadAccount, loadUsage])
+  }, [provider, credential, loadAccount, loadUsage])
 
   const refreshAll = useCallback(async () => {
     setBusy(true)
     try {
-      await loadSnapshot()
+      const request = ++requests.current.snapshot
+      const result = await quota.refreshAccounts()
+      if (result.ok && request === requests.current.snapshot) applySnapshot(result.value)
       await Promise.all([
         loadUsage(provider, true),
-        provider === undefined ? Promise.resolve() : loadAccount(provider, true),
+        provider === undefined ? Promise.resolve() : loadAccount(provider, credential, false),
       ])
     } finally {
       setBusy(false)
     }
-  }, [loadSnapshot, loadUsage, loadAccount, provider])
+  }, [quota, applySnapshot, loadUsage, loadAccount, provider, credential])
 
   const resetStats = useCallback(async () => {
     const result = await quota.resetStats({})
@@ -160,8 +191,8 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
   const setManual = useCallback(async (id: string, value: number) => {
     await quota.setBalances({ balances: { [id]: value } })
     await loadSnapshot()
-    await loadAccount(id, false)
-  }, [quota, loadSnapshot, loadAccount])
+    await loadAccount(id, credential, false)
+  }, [quota, loadSnapshot, loadAccount, credential])
 
   const exportUsage = useCallback(async (kind: QuotaExportKind) => {
     const result = await quota.exportUsage({ kind })
@@ -224,12 +255,16 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
           t={t}
           providers={providers}
           selected={provider}
+          selectedCredential={credential}
           account={account}
           manualTotal={row?.balance?.total}
           manualRemaining={row?.balance?.remaining}
-          onSelect={setProvider}
+          onSelect={(id, credentialRef) => {
+            setProvider(id)
+            setCredential(credentialRef)
+          }}
           onRefresh={() => {
-            if (provider !== undefined) void loadAccount(provider, true)
+            if (provider !== undefined) void loadAccount(provider, credential, true)
           }}
           onManualChange={(id, value) => { void setManual(id, value) }}
         />}
@@ -262,7 +297,12 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
         providers={allUsage?.providers ?? []}
         names={providerNames}
         selected={provider}
-        onSelect={setProvider}
+        onSelect={(id) => {
+          setProvider(id)
+          // A route picked from the comparison table reads its first key,
+          // which is what an absent reference names.
+          setCredential(undefined)
+        }}
         allTimeTokens={allUsage?.allTimeTotals.totalTokens ?? 0}
         todayTokens={allUsage?.todayTotals.totalTokens ?? 0}
         monthTokens={allUsage?.monthTotals.totalTokens ?? 0}

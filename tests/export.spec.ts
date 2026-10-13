@@ -50,6 +50,8 @@ const PROVIDERS: readonly QuotaProviderEntry[] = Object.freeze([
     adapter: 'deepseek-balance',
     status: 'ok',
     warning: 'normal',
+    credentialRefs: ['DEEPSEEK_API_KEY'],
+    accounts: [],
   } as const),
 ])
 

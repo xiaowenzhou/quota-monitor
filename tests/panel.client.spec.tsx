@@ -73,6 +73,8 @@ const SNAPSHOT: QuotaSnapshot = {
     adapter: 'deepseek-balance',
     status: 'ok',
     warning: 'normal',
+    credentialRefs: ['DEEPSEEK_API_KEY'],
+    accounts: [],
   }],
   rows: [{
     id: 'deepseek',
@@ -174,6 +176,10 @@ function failed<T>(): RemoteResult<T> {
 function api(overrides: Partial<QuotaMonitorApi> = {}): QuotaMonitorApi {
   return {
     getSnapshot: () => Promise.resolve(ok(SNAPSHOT)),
+    // Opening the panel is served by its own round trip, so a case that serves
+    // a snapshot of its own states it for that call too.
+    readPendingAccounts: () => Promise.resolve(ok(SNAPSHOT)),
+    refreshAccounts: () => Promise.resolve(ok(SNAPSHOT)),
     getAccount: () => Promise.resolve(ok(ACCOUNT)),
     getUsage: () => Promise.resolve(ok(USAGE)),
     exportUsage: () => Promise.resolve(ok(EXPORT)),
@@ -316,7 +322,10 @@ describe('quota monitor usage panel', () => {
     const getUsage = vi.fn((request: { provider?: string }) => request.provider === 'deepseek'
       ? pendingUsage : Promise.resolve(ok(proUsage)))
     render(<UsagePanel {...props(api({
-      getSnapshot: () => Promise.resolve(ok(snapshot)), getUsage,
+      getSnapshot: () => Promise.resolve(ok(snapshot)),
+      readPendingAccounts: () => Promise.resolve(ok(snapshot)),
+      refreshAccounts: () => Promise.resolve(ok(snapshot)),
+      getUsage,
       getAccount: request => request.provider === 'deepseek' ? pendingAccount
         : Promise.resolve(ok({ ...ACCOUNT, id: 'pro', name: 'Pro', remaining: 88 })),
     }))} />)
@@ -441,6 +450,8 @@ describe('quota monitor usage panel', () => {
           adapter: 'sub2api',
           status: 'ok',
           warning: 'normal',
+          credentialRefs: ['PRO_API_KEY'],
+          accounts: [],
         },
       ],
     }
@@ -452,6 +463,8 @@ describe('quota monitor usage panel', () => {
       Promise.resolve(ok(scoped[request.provider ?? 'deepseek'] ?? USAGE)))
     render(<UsagePanel {...props(api({
       getSnapshot: () => Promise.resolve(ok(twoProviders)),
+      readPendingAccounts: () => Promise.resolve(ok(twoProviders)),
+      refreshAccounts: () => Promise.resolve(ok(twoProviders)),
       getUsage,
     }))} />)
 
@@ -534,7 +547,11 @@ describe('quota monitor usage panel', () => {
 
   it('says so when no provider is configured instead of rendering an empty card', async () => {
     const empty: QuotaSnapshot = { ...SNAPSHOT, providers: [], rows: [] }
-    render(<UsagePanel {...props(api({ getSnapshot: () => Promise.resolve(ok(empty)) }))} />)
+    render(<UsagePanel {...props(api({
+      getSnapshot: () => Promise.resolve(ok(empty)),
+      readPendingAccounts: () => Promise.resolve(ok(empty)),
+      refreshAccounts: () => Promise.resolve(ok(empty)),
+    }))} />)
 
     expect(await screen.findByText('No provider is configured yet')).toBeTruthy()
   })
@@ -570,8 +587,9 @@ describe('quota monitor usage panel', () => {
     fireEvent.blur(input)
 
     await waitFor(() => { expect(setBalances).toHaveBeenCalledWith({ balances: { deepseek: 80 } }) })
-    // The card the reader is looking at must reflect the entry, so both reads re-run.
-    await waitFor(() => { expect(getSnapshot).toHaveBeenCalledTimes(2) })
+    // The card the reader is looking at must reflect the entry, so the snapshot
+    // is re-read and the card re-read against it.
+    await waitFor(() => { expect(getSnapshot).toHaveBeenCalledTimes(1) })
     await waitFor(() => { expect(getAccount).toHaveBeenCalledTimes(2) })
     expect(await screen.findByText('Manual remainder 9')).toBeTruthy()
   })
@@ -653,5 +671,60 @@ describe('quota monitor usage panel', () => {
     expect(await screen.findByRole('button', { name: 'Daily CSV' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sessions CSV' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Full report JSON' })).toBeTruthy()
+  })
+
+  it('reads every monitored key on open and states each key figure in the selector', async () => {
+    const keyA: QuotaAccount = { ...ACCOUNT, credentialRef: 'DEEPSEEK_KEY_A', remaining: 42.5 }
+    const keyB: QuotaAccount = { ...ACCOUNT, credentialRef: 'DEEPSEEK_KEY_B', remaining: 7 }
+    const twoKeys: QuotaSnapshot = { ...SNAPSHOT, providers: [{
+      ...SNAPSHOT.providers[0]!,
+      credentialRefs: ['DEEPSEEK_KEY_A', 'DEEPSEEK_KEY_B'],
+      accounts: [keyA, keyB],
+    }] }
+    const readPendingAccounts = vi.fn(() => Promise.resolve(ok(twoKeys)))
+    const getAccount = vi.fn((request: { credentialRef?: string }) => Promise.resolve(
+      ok(request.credentialRef === 'DEEPSEEK_KEY_B' ? keyB : keyA),
+    ))
+    render(<UsagePanel {...props(api({ readPendingAccounts, getAccount }))} />)
+
+    // Opening the panel is what reads the credentials no round had read yet.
+    await waitFor(() => { expect(readPendingAccounts).toHaveBeenCalledTimes(1) })
+    // Both keys state their own remainder, so the reader compares them without
+    // switching the card back and forth.
+    const chipA = await screen.findByRole('button', { name: /DEEPSEEK_KEY_A/u })
+    const chipB = screen.getByRole('button', { name: /DEEPSEEK_KEY_B/u })
+    expect(chipA.textContent).toContain('42.5 CNY')
+    expect(chipB.textContent).toContain('7 CNY')
+    // The route names the group its two chips belong to, so the pair reads as
+    // the keys of one account rather than as two accounts.
+    expect(chipA.parentElement).toBe(chipB.parentElement)
+    expect(chipA.parentElement?.textContent).toContain('DeepSeek')
+
+    fireEvent.click(chipB)
+    await waitFor(() => {
+      expect(getAccount).toHaveBeenCalledWith({
+        provider: 'deepseek', credentialRef: 'DEEPSEEK_KEY_B', refresh: false,
+      })
+    })
+    await waitFor(() => { expect(chipB.getAttribute('aria-pressed')).toBe('true') })
+    expect(chipA.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('re-reads every key when the header refresh runs', async () => {
+    const refreshed: QuotaSnapshot = { ...SNAPSHOT, providers: [{
+      ...SNAPSHOT.providers[0]!,
+      credentialRefs: ['DEEPSEEK_KEY_A', 'DEEPSEEK_KEY_B'],
+      accounts: [{ ...ACCOUNT, credentialRef: 'DEEPSEEK_KEY_A', remaining: 3 }],
+    }] }
+    const refreshAccounts = vi.fn(() => Promise.resolve(ok(refreshed)))
+    const { container } = render(<UsagePanel {...props(api({ refreshAccounts }))} />)
+
+    // The card states the selected key's reading before the round.
+    await screen.findByText('42.5 CNY')
+    fireEvent.click(headerRefresh(container))
+
+    await waitFor(() => { expect(refreshAccounts).toHaveBeenCalledTimes(1) })
+    // The round's snapshot replaces the selector's figures with fresh ones.
+    expect(await screen.findByText('3 CNY')).toBeTruthy()
   })
 })

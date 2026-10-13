@@ -26,7 +26,7 @@ import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { adapterFor, credentialRefsFor, declarativeAdapter } from './adapters/index.ts'
 import type { QuotaAccountReading, QuotaAdapter, QuotaAdapterContext } from './adapters/index.ts'
 import { detectSub2apiPanel } from './adapters/sub2api.ts'
-import { Config, assertConsistent, resolveMonitor } from './config.ts'
+import { Config, CREDENTIAL_REF_PATTERN, assertConsistent, resolveMonitor } from './config.ts'
 import type { QuotaMonitorConfig, QuotaMonitorConfigInput } from './config.ts'
 import { buildExport } from './export.ts'
 import { QuotaRequestError } from './http.ts'
@@ -59,9 +59,6 @@ export { Config } from './config.ts'
 /** Delay before the first background round, so boot is not spent on network calls. */
 const INITIAL_DELAY_MS = 2_000
 
-/** Credential reference grammar accepted by the credentials seam. */
-const credentialRefPattern = /^[A-Za-z_][A-Za-z0-9_]*$/
-
 /** Well-known base URLs used when a provider profile stores none. */
 const DEFAULT_BASE_URLS: Readonly<Record<string, string>> = Object.freeze({
   'deepseek-official': 'https://api.deepseek.com',
@@ -84,6 +81,27 @@ interface ProviderProfile {
 
 /** A profile with nothing configured. */
 const EMPTY_PROFILE: ProviderProfile = Object.freeze({})
+
+/** One monitored credential: a provider route plus the reference it is read with. */
+interface QuotaAccountSlot {
+  /** Provider route key. */
+  readonly id: string
+  /** Credential reference this route's account is read with, when one is named. */
+  readonly credentialRef?: string
+}
+
+/**
+ * Cache key of one monitored credential.
+ *
+ * A route watched through several keys holds one reading per key, so the route
+ * id alone cannot address the map; the NUL separator cannot appear in either
+ * part, so two different slots never collide.
+ * @param slot - the route and its credential reference.
+ * @returns a key unique among a route's monitored credentials.
+ */
+function accountKey(slot: QuotaAccountSlot): string {
+  return slot.credentialRef === undefined ? slot.id : `${slot.id}\u0000${slot.credentialRef}`
+}
 
 /** Mutable per-provider accounting bucket. */
 interface QuotaMutableBucket {
@@ -112,6 +130,10 @@ export class QuotaMonitorService extends TypertRemoteService {
   private readonly usage = new Map<string, QuotaMutableBucket>()
   private readonly names = new Map<string, string>()
   private readonly profiles = new Map<string, LlmConfigurableProvider>()
+  /**
+   * Readings keyed by route and monitored credential ({@link accountKey}), so a
+   * route watched through several keys keeps one reading per key.
+   */
   private readonly accounts = new Map<string, QuotaAccount>()
   private readonly manual = new Map<string, number>()
   private readonly usageStore: QuotaUsageStore
@@ -126,8 +148,11 @@ export class QuotaMonitorService extends TypertRemoteService {
    * asked what it is at most once per configuration.
    */
   private readonly detected = new Map<string, Promise<boolean>>()
-  /** Provider whose account the panel is showing, refreshed at the active interval. */
-  private focused: string | undefined
+  /**
+   * The credential the panel is showing, refreshed at the active interval.
+   * Absent until the panel asks for a reading.
+   */
+  private focused: QuotaAccountSlot | undefined
 
   /**
    * @param ctx - Host context carrying the llm, settings, credentials, session
@@ -206,15 +231,43 @@ export class QuotaMonitorService extends TypertRemoteService {
 
   /**
    * Read one provider's account.
-   * @param request - the provider and whether to bypass the cached reading.
+   * @param request - the provider route, the credential reference to read, and
+   * whether to bypass the cached reading. An absent reference reads the route's
+   * first monitored credential.
    * @returns the account, including a non-`ok` status when it cannot be read.
    */
   @Remote('getAccount')
   async getAccount(request: QuotaAccountRequest): Promise<QuotaAccount> {
-    this.focused = request.provider
-    const cached = this.accounts.get(request.provider)
+    const slot = this.slotFor(request)
+    this.focused = slot
+    const cached = this.accounts.get(accountKey(slot))
     if (cached !== undefined && request.refresh !== true) return cached
-    return this.readAccount(request.provider)
+    return this.readAccount(slot)
+  }
+
+  /**
+   * Read every monitored credential that has no cached reading yet, and answer
+   * with the resulting snapshot.
+   *
+   * This is what opening the panel needs: every key a deployment monitors
+   * states its own figure, while the readings a previous round already took are
+   * served from cache rather than queried again.
+   * @returns the snapshot carrying the readings.
+   */
+  @Remote('readPendingAccounts')
+  async readPendingAccounts(): Promise<QuotaSnapshot> {
+    await this.readRouteAccounts(slot => !this.accounts.has(accountKey(slot)))
+    return this.snapshot()
+  }
+
+  /**
+   * Re-read every monitored credential of every known route.
+   * @returns the snapshot carrying the new readings.
+   */
+  @Remote('refreshAccounts')
+  async refreshAccounts(): Promise<QuotaSnapshot> {
+    await this.readRouteAccounts()
+    return this.snapshot()
   }
 
   /**
@@ -276,28 +329,83 @@ export class QuotaMonitorService extends TypertRemoteService {
     return this.snapshot()
   }
 
-  /** Refold usage and refresh the focused provider's account. */
+  /** Refold usage, then re-read every monitored credential. */
   private async runBackgroundRound(): Promise<void> {
     await this.reloadPrices(false)
     await this.usageStore.refresh()
-    await this.refreshFocusedAccount()
+    await this.readRouteAccounts()
   }
 
-  /** Re-read only the account the panel is showing. */
+  /** Re-read only the credential the panel is showing. */
   private async refreshFocusedAccount(): Promise<void> {
-    const id = this.focused
-    if (id === undefined) return
-    await this.readAccount(id)
+    if (this.focused === undefined) return
+    await this.readAccount(this.focused)
   }
 
   /**
-   * Run one provider's adapter and cache the reading.
+   * Read monitored credentials route by route.
+   *
+   * Routes proceed together while one route's credentials are read in order, so
+   * a gateway monitoring several keys is not asked all of them at once.
+   * @param pending - which slots to read; absent reads every monitored slot.
+   */
+  private async readRouteAccounts(pending?: (slot: QuotaAccountSlot) => boolean): Promise<void> {
+    await Promise.all([...this.usage.keys()].map(async id => {
+      for (const slot of this.slotsOf(id)) {
+        if (pending !== undefined && !pending(slot)) continue
+        await this.readAccount(slot)
+      }
+    }))
+  }
+
+  /**
+   * The monitored credentials of one route, in read order.
+   *
+   * A configured `credentialRefs` list replaces the route's own credential
+   * entirely; otherwise the route has one slot, read with the monitor override
+   * or with the provider key its profile names.
+   * @param id - provider route key.
+   * @returns one slot per monitored credential.
+   */
+  private slotsOf(id: string): readonly QuotaAccountSlot[] {
+    const configured = resolveMonitor(this.config, id)?.credentialRefs
+    if (configured !== undefined && configured.length > 0) {
+      return configured.map(credentialRef => ({ id, credentialRef }))
+    }
+    const credentialRef = this.credentialRefOf(id)
+    return [credentialRef === undefined ? { id } : { id, credentialRef }]
+  }
+
+  /** The credential reference one route's own account read uses, when one is named. */
+  private credentialRefOf(id: string): string | undefined {
+    const configured = resolveMonitor(this.config, id)?.credentialRef
+    if (configured !== undefined) return configured
+    const fromProfile = this.profileOf(id).apiKeyEnv
+    return typeof fromProfile === 'string' && CREDENTIAL_REF_PATTERN.test(fromProfile) ? fromProfile : undefined
+  }
+
+  /**
+   * The monitored credential one account request names.
+   * @param request - provider route and optional credential reference.
+   * @returns the slot, defaulting to the route's first monitored credential.
+   */
+  private slotFor(request: QuotaAccountRequest): QuotaAccountSlot {
+    if (request.credentialRef === undefined) return this.slotsOf(request.provider)[0] ?? { id: request.provider }
+    return { id: request.provider, credentialRef: request.credentialRef }
+  }
+
+  /**
+   * Run one provider's adapter for one monitored credential and cache the
+   * reading.
    *
    * Every failure becomes an account with a status: the panel states why a
    * figure is missing instead of drawing a zero.
+   * @param slot - the route and the credential reference to read it with.
+   * @returns the reading, cached under this credential.
    */
-  private async readAccount(id: string): Promise<QuotaAccount> {
+  private async readAccount(slot: QuotaAccountSlot): Promise<QuotaAccount> {
     this.refresh()
+    const { id, credentialRef } = slot
     const name = this.names.get(id) ?? id
     const fetchedAt = Date.now()
     const entry = resolveMonitor(this.config, id)
@@ -311,6 +419,7 @@ export class QuotaMonitorService extends TypertRemoteService {
       mode: identity.mode,
       status: 'unsupported',
       adapter: identity.adapter ?? 'none',
+      ...credentialRef === undefined ? {} : { credentialRef },
       fetchedAt,
     }
 
@@ -322,7 +431,7 @@ export class QuotaMonitorService extends TypertRemoteService {
       ...baseURL === undefined ? {} : { baseURL },
       ...apiKey === undefined ? {} : { apiKey },
       ...entry?.usageBaseURL === undefined ? {} : { usageBaseURL: entry.usageBaseURL },
-      ...entry?.credentialRef === undefined ? {} : { credentialRef: entry.credentialRef },
+      ...credentialRef === undefined ? {} : { credentialRef },
       ...entry?.allowPlaintextEndpoint === true ? { allowPlaintext: true } : {},
       ...entry?.allowedHosts === undefined ? {} : { allowedHosts: entry.allowedHosts.map(host => host.toLowerCase()) },
     }
@@ -410,9 +519,9 @@ export class QuotaMonitorService extends TypertRemoteService {
     return remaining <= warning ? 'warning' : 'normal'
   }
 
-  /** Cache one account reading and return it. */
+  /** Cache one account reading under its route and credential and return it. */
   private publish(account: QuotaAccount): QuotaAccount {
-    this.accounts.set(account.id, account)
+    this.accounts.set(accountKey(account), account)
     return account
   }
 
@@ -616,7 +725,7 @@ export class QuotaMonitorService extends TypertRemoteService {
 
   /** Current credential value for one reference name, or undefined. */
   private async resolveApiKey(reference: unknown): Promise<string | undefined> {
-    if (typeof reference !== 'string' || !credentialRefPattern.test(reference)) return undefined
+    if (typeof reference !== 'string' || !CREDENTIAL_REF_PATTERN.test(reference)) return undefined
     try {
       // The grammar check above is the seam's own `isCredentialRefName`, so the
       // brand below is the whole conversion — same reason `profileOf` brands its
@@ -640,7 +749,15 @@ export class QuotaMonitorService extends TypertRemoteService {
       const baseURL = trimBaseURL(profile.baseURL) ?? DEFAULT_BASE_URLS[id]
       const identity = resolveProviderIdentity(id, baseURL, monitor?.adapter)
       const adapter = monitor?.declarative !== undefined ? 'declarative' : identity.adapter
-      const account = this.accounts.get(id)
+      const slots = this.slotsOf(id)
+      // The route-level fields describe its first monitored credential, which
+      // is the one a single-credential route has always reported.
+      const account = slots[0] === undefined ? undefined : this.accounts.get(accountKey(slots[0]))
+      const accounts: QuotaAccount[] = []
+      for (const slot of slots) {
+        const reading = this.accounts.get(accountKey(slot))
+        if (reading !== undefined) accounts.push(reading)
+      }
       entries.push({
         id,
         name: bucket.name,
@@ -650,6 +767,8 @@ export class QuotaMonitorService extends TypertRemoteService {
         adapter: account?.adapter ?? adapter ?? 'none',
         status: account?.status ?? 'unsupported',
         ...account?.warning === undefined ? {} : { warning: account.warning },
+        credentialRefs: slots.flatMap(slot => slot.credentialRef === undefined ? [] : [slot.credentialRef]),
+        accounts,
       })
     }
     return entries

@@ -88,6 +88,8 @@ const UNSUPPORTED: QuotaAccount = {
 function api(account: QuotaAccount | undefined): QuotaMonitorApi {
   return {
     getSnapshot: () => Promise.resolve(ok({} as never)),
+    readPendingAccounts: () => Promise.resolve(ok({} as never)),
+    refreshAccounts: () => Promise.resolve(ok({} as never)),
     getAccount: () => Promise.resolve(account === undefined
       ? { ok: false, error: new RemoteError('gateway/internal', 'unavailable', {}) } as RemoteResult<QuotaAccount>
       : ok(account)),

@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-13-quota-monitor-multi-key-accounts.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-13-quota-monitor-multi-key-accounts.md
+/agent-note-quota-account-readings-per-monitored-credential:
+  en: af78dc1af5d26564
+  zh: c0246f4394562578
+/agent-note-quota-account-readings-per-monitored-credential/problem:
+  en: 4b220d036f373b95
+  zh: 8cca3dcb831bffc7
+/agent-note-quota-account-readings-per-monitored-credential/decision:
+  en: 07274df10e7ede75
+  zh: 438d3166e2488b95
+/agent-note-quota-account-readings-per-monitored-credential/verification:
+  en: e9088c767042d5f8
+  zh: 8afe9edc0aaf40a1
+/agent-note-quota-account-readings-per-monitored-credential/alternatives-considered:
+  en: 939d7b0a8c66acad
+  zh: 27ced4df7544d156
+/agent-note-quota-account-readings-per-monitored-credential/consequences:
+  en: 552a80b20e22ef6a
+  zh: 4f873bb0a1113397
