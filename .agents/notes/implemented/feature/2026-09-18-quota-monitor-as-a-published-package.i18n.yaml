@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-18-quota-monitor-as-a-published-package.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-18-quota-monitor-as-a-published-package.md
+/agent-note-the-quota-monitor-as-a-published-dual-face-package:
+  en: 8a9c0ef0da26008d
+  zh: 72c479fb6264264f
+/agent-note-the-quota-monitor-as-a-published-dual-face-package/problem:
+  en: 282a8805a5a9dab6
+  zh: 117b6513c2664ea7
+/agent-note-the-quota-monitor-as-a-published-dual-face-package/decision:
+  en: f9bfc10d0601a60a
+  zh: e81b6a885c021c9c
+/agent-note-the-quota-monitor-as-a-published-dual-face-package/verification:
+  en: c4eebfcef649c54e
+  zh: 45c79bebeae00a99
+/agent-note-the-quota-monitor-as-a-published-dual-face-package/alternatives-considered:
+  en: 3472f276883c3681
+  zh: f3cd3977b633dd35
+/agent-note-the-quota-monitor-as-a-published-dual-face-package/consequences:
+  en: 2a0ef822efbbf368
+  zh: 2b3fad82298e55ee

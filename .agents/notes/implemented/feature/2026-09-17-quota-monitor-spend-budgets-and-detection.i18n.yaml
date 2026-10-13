@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-17-quota-monitor-spend-budgets-and-detection.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-17-quota-monitor-spend-budgets-and-detection.md
+/agent-note-a-spend-and-budget-quota-panel-and-asking-a-gateway-what-it-is:
+  en: 21efc41b20694f58
+  zh: 4168d294f3948f42
+/agent-note-a-spend-and-budget-quota-panel-and-asking-a-gateway-what-it-is/problem:
+  en: 7424087855ed7191
+  zh: e201f4f346c045fc
+/agent-note-a-spend-and-budget-quota-panel-and-asking-a-gateway-what-it-is/decision:
+  en: 6d927550e22f4dad
+  zh: 160841e3cac4ad4e
+/agent-note-a-spend-and-budget-quota-panel-and-asking-a-gateway-what-it-is/verification:
+  en: a255790672682c35
+  zh: 70af515f8290db54
+/agent-note-a-spend-and-budget-quota-panel-and-asking-a-gateway-what-it-is/alternatives-considered:
+  en: e3337b236400ef73
+  zh: 76a8f6968c67a261
+/agent-note-a-spend-and-budget-quota-panel-and-asking-a-gateway-what-it-is/consequences:
+  en: e8fb21cc7a6411d4
+  zh: 548798a52fea238c

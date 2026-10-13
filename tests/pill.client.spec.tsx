@@ -211,7 +211,7 @@ describe('quota pill', () => {
   })
 
   it('forces a read from inside the reading', async () => {
-    const getAccount = vi.fn((request: { refresh?: boolean }) => Promise.resolve(ok(WALLET)))
+    const getAccount = vi.fn((_request: { refresh?: boolean }) => Promise.resolve(ok(WALLET)))
     render(<QuotaPill {...props({ ...api(WALLET), getAccount }, 'ktc-claude')} />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'KTC allowance' }))

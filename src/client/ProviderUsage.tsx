@@ -173,7 +173,8 @@ export function ProviderUsage({
   // now. The focused route is always shown, so the section never hides the
   // choice it describes.
   const active = sorted.filter(row => figuresOf(row, scope).tokens > 0)
-  const rows = expanded ? active : [chosen ?? active[0] ?? sorted[0]!]
+  const focused = chosen ?? active[0] ?? sorted[0]
+  const rows = expanded ? active : focused === undefined ? [] : [focused]
 
   return <div className={css.providerList}>
     <div className={css.providerTools}>

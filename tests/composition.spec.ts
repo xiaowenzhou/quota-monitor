@@ -23,6 +23,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { describe, expect, it } from 'vitest'
+import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import type {
@@ -32,7 +33,7 @@ import type {
   CredentialRecordInfo,
   ResolvedCredential,
 } from '@deepseek-ai/dsh-credentials'
-import LlmRuntime, { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { LlmAdapter, MessageId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { installStubSeams } from './stubs.ts'
 
@@ -80,10 +81,21 @@ interface Booted {
 /** The one session the stub query serves, whose fold the export must carry. */
 function sessionLog(): SessionEvent[] {
   const day = new Date(2026, 2, 15, 12).getTime()
+  const stream = [{ type: 'chunk' as const, time: day, chunk: {
+    type: 'usage' as const, usage: { inputTokens: 400, outputTokens: 100, cacheReadTokens: 50 },
+  } }]
   return [
-    { seq: 0, time: day, type: 'request/context', data: { provider: 'mock', model: 'mock-model' } },
-    { seq: 1, time: day, type: 'assistant/message', data: { usage: { inputTokens: 400, outputTokens: 100, cacheReadTokens: 50 } } },
-  ] as unknown as SessionEvent[]
+    { seq: SessionSeq(0), time: day, type: 'request/header', data: {
+      header: { config: { provider: 'mock', model: 'mock-model' } }, reason: 'initial',
+    } },
+    { seq: SessionSeq(1), time: day, type: 'assistant/attempt', data: { turn: 1, step: 1, stream } },
+    { seq: SessionSeq(2), time: day, type: 'assistant/message', surfaceOp: 'append', data: {
+      turn: 1, step: 1, message: {
+        id: MessageId('quota-final'), role: 'assistant', content: [],
+        source: { kind: 'model', provider: 'mock', model: 'mock-model' },
+      }, stream,
+    } },
+  ]
 }
 
 /** A deployment's own inference route, scripted so no socket is opened. */
@@ -131,6 +143,14 @@ async function boot(): Promise<Booted> {
     '  config:',
     '    refresh:',
     '      enabled: false',
+    '    pricing:',
+    '      currency: USD',
+    '      rules:',
+    '        - provider: mock',
+    '          model: mock-model',
+    '          inputPerMillion: 1',
+    '          outputPerMillion: 2',
+    '          cacheReadPerMillion: 0.1',
     '',
   ].join('\n'))
 
@@ -216,6 +236,13 @@ describe('quota monitor composition through the Loader', () => {
         totalTokens: 550,
       })
       expect(usage.sessions[0]).toMatchObject({ id: 'session-folded', calls: 1 })
+      expect(usage.models).toHaveLength(1)
+      expect(usage.models?.[0]).toMatchObject({
+        provider: 'mock', model: 'mock-model',
+        all: { calls: 1, totalTokens: 550, cost: { amount: 0.000605, currency: 'USD', unpricedCalls: 0 } },
+        rate: { currency: 'USD', inputPerMillion: 1, outputPerMillion: 2, cacheReadPerMillion: 0.1 },
+      })
+      expect(seams.storageDomain.state.records.get('session-folded')).toMatchObject({ accountingVersion: 3 })
 
       // The durable cache the fold opened on the storage seam survives its round.
       expect(seams.storageDomain.state.records.size).toBeGreaterThan(0)

@@ -9,7 +9,7 @@
  * @module @deepseek-ai/dsh-extension-quota-monitor/client/UsagePanel
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
@@ -33,6 +33,7 @@ import { DayBreakdown } from './DayBreakdown.tsx'
 import { ProviderUsage } from './ProviderUsage.tsx'
 import { SessionList } from './SessionList.tsx'
 import { TotalsRow } from './TotalsRow.tsx'
+import { ModelUsage } from './ModelUsage.tsx'
 import css from './UsagePanel.module.css'
 
 /** The mounted `ctx.remote.quotaMonitor` face the panel talks to. */
@@ -84,6 +85,14 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
   const [month, setMonth] = useState<string | undefined>()
   const [selectedDay, setSelectedDay] = useState<string | undefined>()
   const [busy, setBusy] = useState(false)
+  const selection = useRef(provider)
+  const requests = useRef({ usage: 0, account: 0 })
+  selection.current = provider
+
+  useEffect(() => () => {
+    requests.current.usage++
+    requests.current.account++
+  }, [])
 
   const loadSnapshot = useCallback(async () => {
     const result = await quota.getSnapshot()
@@ -95,22 +104,23 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
   }, [quota])
 
   const loadUsage = useCallback(async (id: string | undefined, refresh: boolean) => {
-    // Each read publishes as it lands, so the selected route's figures are not
-    // held up by the comparison read that shares the request.
-    const scoped = quota
-      .getUsage({ refresh, ...id === undefined ? {} : { provider: id } })
-      .then(result => {
-        if (result.ok) setUsage(result.value)
-      })
-    const all = quota.getUsage({}).then(result => {
-      if (result.ok) setAllUsage(result.value)
-    })
-    await Promise.all([scoped, all])
+    if (selection.current !== id) return
+    const request = ++requests.current.usage
+    const result = await quota.getUsage({ refresh, ...id === undefined ? {} : { provider: id } })
+    if (request !== requests.current.usage) return
+    if (result.ok && selection.current === id) setUsage(result.value)
+    // A refresh completes the Host fold before the cached comparison is read.
+    const all = await quota.getUsage({})
+    if (all.ok && request === requests.current.usage) setAllUsage(all.value)
   }, [quota])
 
   const loadAccount = useCallback(async (id: string, refresh: boolean) => {
+    if (selection.current !== id) return
+    const request = ++requests.current.account
     const result = await quota.getAccount({ provider: id, refresh })
-    if (result.ok) setAccount(result.value)
+    if (result.ok && request === requests.current.account && selection.current === id) {
+      setAccount(result.value)
+    }
   }, [quota])
 
   useEffect(() => {
@@ -120,6 +130,7 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
   useEffect(() => {
     if (provider === undefined) return
     setAccount(undefined)
+    setUsage(undefined)
     void loadAccount(provider, false)
     // The statistics follow the same selection as the account card.
     void loadUsage(provider, false)
@@ -232,6 +243,13 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
           : <span className={css.sectionMeta}>{t('usage.scope', { provider: scopeName })}</span>}
       </div>
       <TotalsRow t={t} usage={usage} />
+    </section>
+
+    <section className={css.section}>
+      <div className={css.sectionHead}>
+        <h2 className={css.sectionTitle}>{t('model.heading')}</h2>
+      </div>
+      <ModelUsage t={t} models={usage?.models ?? []} names={providerNames} />
     </section>
 
     <section className={css.section}>

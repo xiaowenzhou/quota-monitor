@@ -10,7 +10,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { makeTranslate, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/index.ts'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
@@ -227,6 +227,110 @@ describe('quota monitor usage panel', () => {
     expect(screen.getByText('25% used')).toBeTruthy()
     expect(await screen.findByText(elementCarrying('SPAN', 'On track · 12.5%'))).toBeTruthy()
     expect(screen.getByText(elementCarrying('SPAN', 'Cost incomplete'))).toBeTruthy()
+  })
+
+  it('shows model counters by range with partial estimates and configured rates', async () => {
+    const usage: QuotaUsageReport = {
+      ...USAGE,
+      models: [{
+        provider: 'deepseek', model: 'deepseek-chat',
+        all: { ...TOTALS, calls: 99, cost: { amount: 9, currency: 'USD', unpricedCalls: 2 }, cacheHitPercent: 60 },
+        today: { ...TOTALS, inputTokens: 123, calls: 3, cacheHitPercent: 20 },
+        month: { ...TOTALS, calls: 12, cost: { amount: 4, currency: 'USD', unpricedCalls: 1 }, cacheHitPercent: 40 },
+        rate: { currency: 'USD', inputPerMillion: 1.5, outputPerMillion: 6,
+          cacheReadPerMillion: 0.15, cacheWritePerMillion: 0, from: '2026-03-01' },
+      }, {
+        provider: 'deepseek', model: 'unpriced-model',
+        all: { ...TOTALS, calls: 1 }, today: { ...TOTALS, calls: 1 }, month: { ...TOTALS, calls: 1 },
+      }],
+    }
+    render(<UsagePanel {...props(api({ getUsage: () => Promise.resolve(ok(usage)) }))} />)
+    const heading = await screen.findByText('Usage by model')
+    const section = within(heading.closest('section') as HTMLElement)
+    const model = await section.findByRole('rowheader', { name: 'deepseek-chat' })
+    const row = within(model.closest('tr') as HTMLElement)
+    expect(row.getByText('DeepSeek')).toBeTruthy()
+    expect(row.getByText('deepseek')).toBeTruthy()
+    expect(row.getByText('12')).toBeTruthy()
+    expect(row.getByText('1,000')).toBeTruthy()
+    expect(row.getByText('500')).toBeTruthy()
+    expect(row.getByText('2,000')).toBeTruthy()
+    expect(row.getByText('100')).toBeTruthy()
+    expect(row.getByText('40.0%')).toBeTruthy()
+    expect(row.getByText('4 USD')).toBeTruthy()
+    expect(row.getByText('1 more calls have no configured price')).toBeTruthy()
+    expect(row.getByText('Input 1.5 USD')).toBeTruthy()
+    expect(row.getByText('Output 6 USD')).toBeTruthy()
+    expect(row.getByText('Cache read 0.15 USD')).toBeTruthy()
+    expect(row.getByText('Cache write 0 USD')).toBeTruthy()
+    expect(row.getByText('Effective 2026-03-01')).toBeTruthy()
+    expect(section.getByText('Current configured rates / 1M tokens')).toBeTruthy()
+    expect(section.getByText(/Costs are estimates from configured prices/u)).toBeTruthy()
+    expect(section.getByText('No configured rates')).toBeTruthy()
+    expect(section.getByText('Unpriced')).toBeTruthy()
+
+    fireEvent.click(section.getByRole('button', { name: 'Today' }))
+    expect(row.getByText('123')).toBeTruthy()
+    expect(row.getByText('3')).toBeTruthy()
+    expect(row.getByText('20.0%')).toBeTruthy()
+    expect(row.getByText('Unpriced')).toBeTruthy()
+    fireEvent.click(section.getByRole('button', { name: 'All time' }))
+    expect(row.getByText('99')).toBeTruthy()
+    expect(row.getByText('9 USD')).toBeTruthy()
+    expect(row.getByText('2 more calls have no configured price')).toBeTruthy()
+  })
+
+  it('reads comparison totals only after the refreshed fold completes', async () => {
+    let release: ((result: RemoteResult<QuotaUsageReport>) => void) | undefined
+    const pending = new Promise<RemoteResult<QuotaUsageReport>>((resolve) => { release = resolve })
+    let folded = false
+    const fresh: QuotaUsageReport = {
+      ...USAGE,
+      providers: [{ ...USAGE.providers[0]!, monthTokens: 987 }],
+    }
+    const getUsage = vi.fn((request: { refresh?: boolean }) => {
+      if (request.refresh) return pending.then((result) => { folded = true; return result })
+      return Promise.resolve(ok(folded ? fresh : USAGE))
+    })
+    const { container } = render(<UsagePanel {...props(api({ getUsage }))} />)
+    const section = within((await screen.findByText('Usage by provider')).closest('section') as HTMLElement)
+    await section.findByText('3.6k')
+    getUsage.mockClear()
+    fireEvent.click(headerRefresh(container))
+    await waitFor(() => { expect(getUsage).toHaveBeenCalledTimes(1) })
+    expect(getUsage).toHaveBeenCalledWith({ refresh: true, provider: 'deepseek' })
+    release?.(ok(fresh))
+    await section.findByText('987')
+    expect(getUsage).toHaveBeenNthCalledWith(2, {})
+  })
+
+  it('ignores an earlier provider response after a new route has loaded', async () => {
+    let releaseUsage: ((result: RemoteResult<QuotaUsageReport>) => void) | undefined
+    let releaseAccount: ((result: RemoteResult<QuotaAccount>) => void) | undefined
+    const pendingUsage = new Promise<RemoteResult<QuotaUsageReport>>((resolve) => { releaseUsage = resolve })
+    const pendingAccount = new Promise<RemoteResult<QuotaAccount>>((resolve) => { releaseAccount = resolve })
+    const snapshot: QuotaSnapshot = { ...SNAPSHOT, providers: [
+      ...SNAPSHOT.providers, { ...SNAPSHOT.providers[0]!, id: 'pro', name: 'Pro' },
+    ] }
+    const proUsage: QuotaUsageReport = { ...USAGE, sessions: [{ ...USAGE.sessions[0]!, id: 'pro-session' }] }
+    const getUsage = vi.fn((request: { provider?: string }) => request.provider === 'deepseek'
+      ? pendingUsage : Promise.resolve(ok(proUsage)))
+    render(<UsagePanel {...props(api({
+      getSnapshot: () => Promise.resolve(ok(snapshot)), getUsage,
+      getAccount: request => request.provider === 'deepseek' ? pendingAccount
+        : Promise.resolve(ok({ ...ACCOUNT, id: 'pro', name: 'Pro', remaining: 88 })),
+    }))} />)
+    await waitFor(() => { expect(getUsage).toHaveBeenCalledWith({ provider: 'deepseek', refresh: false }) })
+    fireEvent.click(await screen.findByRole('button', { name: 'Pro' }))
+    await screen.findByText('pro-session')
+    expect(screen.getByText('88 CNY')).toBeTruthy()
+    await act(async () => {
+      releaseUsage?.(ok(USAGE))
+      releaseAccount?.(ok(ACCOUNT))
+    })
+    await waitFor(() => { expect(screen.getByText('pro-session')).toBeTruthy() })
+    expect(screen.queryByText('session-a')).toBeNull()
+    expect(screen.queryByText('42.5 CNY')).toBeNull()
   })
 
   it('lists the sessions that spent the tokens, by id and route', async () => {

@@ -232,6 +232,31 @@ export interface QuotaModelUsage extends QuotaTokenTotals {
   cost?: QuotaCostView
 }
 
+/** One concrete model's counters and estimated spend within a calendar scope. */
+export interface QuotaModelScope extends QuotaTokenTotals {
+  calls: number
+  cost?: QuotaCostView
+  cacheHitPercent?: number
+}
+
+/** A provider and concrete model, with historical spend and today's effective rate. */
+export interface QuotaModelSummary {
+  readonly provider: string
+  readonly model: string
+  all: QuotaModelScope
+  today: QuotaModelScope
+  month: QuotaModelScope
+  /** Current per-million rates; historical costs retain their own dated rules. */
+  rate?: {
+    currency: string
+    inputPerMillion: number
+    outputPerMillion: number
+    cacheReadPerMillion?: number
+    cacheWritePerMillion?: number
+    from?: string
+  }
+}
+
 /** One calendar day of folded usage, in the Host's local time zone. */
 export interface QuotaDayUsage extends QuotaTokenTotals {
   /** Local calendar day as `YYYY-MM-DD`. */
@@ -356,6 +381,8 @@ export interface QuotaUsageReport {
    * `cacheRead / (cacheRead + input + cacheWrite)`. Absent with no input.
    */
   todayCacheHitPercent?: number
+  /** Concrete provider/model pairs, busiest first; optional for older clients. */
+  models?: readonly QuotaModelSummary[]
   /** Every route carrying usage, busiest first. */
   providers: readonly QuotaProviderUsage[]
   /** Days carrying usage, ascending by date. Days with none are omitted. */

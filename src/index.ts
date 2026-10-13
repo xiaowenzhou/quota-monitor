@@ -590,7 +590,7 @@ export class QuotaMonitorService extends TypertRemoteService {
   private settingsSection(ns: string, path: readonly string[]): unknown {
     const settings = this.ctx.settings as unknown as {
       get?: (namespace: SettingsNamespace) => unknown
-      describe?: () => readonly { ns: string, value?: unknown }[]
+      describe?: () => readonly { ns: string; value?: unknown }[]
     }
     let section: unknown
     try {

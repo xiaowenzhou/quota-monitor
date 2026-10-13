@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-16-quota-monitor-plan-window-providers.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-16-quota-monitor-plan-window-providers.md
+/agent-note-plan-window-and-budget-pool-quota-providers:
+  en: c2147884b0d29020
+  zh: 250bf748db5785ad
+/agent-note-plan-window-and-budget-pool-quota-providers/problem:
+  en: 2b8906d9584952bc
+  zh: 4b4c2cad4cee05e3
+/agent-note-plan-window-and-budget-pool-quota-providers/decision:
+  en: 45b6eed3b6065b2f
+  zh: 846d92f0efc54883
+/agent-note-plan-window-and-budget-pool-quota-providers/verification:
+  en: 7546b66b3327e0e0
+  zh: 9fd04d8b43b8adfa
+/agent-note-plan-window-and-budget-pool-quota-providers/alternatives-considered:
+  en: e8f625db28650ff3
+  zh: 46ac485c0a75a527
+/agent-note-plan-window-and-budget-pool-quota-providers/consequences:
+  en: cfa3d09cf94d6c1f
+  zh: da77cbf4dacea4b6

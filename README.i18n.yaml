@@ -1,0 +1,70 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/extensions/extension-quota-monitor/README.md
+/:
+  en: 5e85a3c7d8f32d6b
+  zh: 20e85cbd15bdeead
+/deepseek-ai-dsh-extension-quota-monitor:
+  en: 7c9c519997d55f2c
+  zh: f91af35a66bd6ac7
+/deepseek-ai-dsh-extension-quota-monitor/summary:
+  en: c0262bf98f885875
+  zh: c7f21200dab909c0
+/deepseek-ai-dsh-extension-quota-monitor/table-of-contents:
+  en: 23386452a66b2fbd
+  zh: dc8dd4f5941b9f74
+/deepseek-ai-dsh-extension-quota-monitor/use-this-package:
+  en: 9bdb32a05d8e801e
+  zh: a002dada15cd419b
+/deepseek-ai-dsh-extension-quota-monitor/use-this-package/what-the-panel-reports:
+  en: 1f59085effef46bc
+  zh: 79026d519ed3c8eb
+/deepseek-ai-dsh-extension-quota-monitor/use-this-package/which-accounts-can-be-read:
+  en: 59806839aaf30e32
+  zh: 9a936df1399e6c1a
+/deepseek-ai-dsh-extension-quota-monitor/use-this-package/mounting:
+  en: 39b23f4b2425c37a
+  zh: 69569ff4e6fc680c
+/deepseek-ai-dsh-extension-quota-monitor/use-this-package/stating-prices-and-ceilings:
+  en: 62246c7a6171a144
+  zh: d83ae4c31d0aa131
+/deepseek-ai-dsh-extension-quota-monitor/use-this-package/exporting:
+  en: e053cbb51da8fe30
+  zh: d301af83b6a12584
+/deepseek-ai-dsh-extension-quota-monitor/use-this-package/teaching-it-a-new-gateway:
+  en: d9b0eec33d7bfd38
+  zh: e46599637286df19
+/deepseek-ai-dsh-extension-quota-monitor/understand-the-implementation:
+  en: 9e3434800d17e9e9
+  zh: 44c1c59a680dc9a1
+/deepseek-ai-dsh-extension-quota-monitor/understand-the-implementation/source-map:
+  en: e5dc1411c584700c
+  zh: 33dea2be10acd318
+/deepseek-ai-dsh-extension-quota-monitor/understand-the-implementation/how-an-account-read-resolves:
+  en: d9fff846593691d2
+  zh: 09c3284f7e53ccf9
+/deepseek-ai-dsh-extension-quota-monitor/understand-the-implementation/how-usage-is-folded:
+  en: 81a653f04264647b
+  zh: 76cf6350b5fb5e9d
+/deepseek-ai-dsh-extension-quota-monitor/understand-the-implementation/how-spend-is-derived:
+  en: dc0a34a331e6246a
+  zh: 01866eeae44adac8
+/deepseek-ai-dsh-extension-quota-monitor/understand-the-implementation/why-reads-stay-in-process:
+  en: e941b7c855d629f9
+  zh: 79a106b145215392
+/deepseek-ai-dsh-extension-quota-monitor/further-exploration:
+  en: 58c4ba875df2ee82
+  zh: 7efe09699d09131e
+/deepseek-ai-dsh-extension-quota-monitor/model-experience:
+  en: 016f238f8be3b166
+  zh: e79a92b8f77af3f3
+/deepseek-ai-dsh-extension-quota-monitor/model-experience/kv-cache-effect:
+  en: 84f78edea3d15fdd
+  zh: 8f5c85b73f020be4
+/deepseek-ai-dsh-extension-quota-monitor/known-limitations-and-deferred-work:
+  en: 1b32c890800ec8a6
+  zh: 5145a4961f19a1a6
+/deepseek-ai-dsh-extension-quota-monitor/known-limitations-and-deferred-work/dev-note:
+  en: 351826c64c8632fa
+  zh: c2364984933e3d03

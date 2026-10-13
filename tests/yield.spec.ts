@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PILL_ID, rivalStatesRoute } from '../src/client/yield.ts'
+import { PILL_ID, rivalStatesRoute } from '../src/yield.ts'
 
 /**
  * Seat arbitration: when does this plugin's composer pill stand down?

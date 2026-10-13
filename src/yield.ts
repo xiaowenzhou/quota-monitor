@@ -13,7 +13,7 @@
  * So the decision is scoped to the route: a sibling stands this pill down only
  * when the route its entry id names is the selected one. A sibling whose id
  * names no route at all claims every route, and still wins.
- * @module @deepseek-ai/dsh-extension-quota-monitor/client/yield
+ * @module @deepseek-ai/dsh-extension-quota-monitor/yield
  */
 
 /** This plugin's entry id in the composer's tool row. */
@@ -67,7 +67,7 @@ export function rivalStatesRoute(
   provider: string,
 ): boolean {
   const selected = provider.toLowerCase()
-  return ids.some(id => {
+  return ids.some((id) => {
     if (id === undefined || id === self) return false
     if (!id.split(SEPARATORS).some(isAllowanceWord)) return false
     const route = routeOf(id)

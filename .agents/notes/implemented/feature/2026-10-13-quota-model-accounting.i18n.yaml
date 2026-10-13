@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-13-quota-model-accounting.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-13-quota-model-accounting.md
+/agent-note-quota-accounting-by-concrete-model-and-settlement:
+  en: fc6da6c338d073e2
+  zh: fe86f00a1c64b65b
+/agent-note-quota-accounting-by-concrete-model-and-settlement/problem:
+  en: dde529f290fb083d
+  zh: 9079097ba9728409
+/agent-note-quota-accounting-by-concrete-model-and-settlement/decision:
+  en: 2796c52fb0ab10df
+  zh: 0491af10a703abb9
+/agent-note-quota-accounting-by-concrete-model-and-settlement/verification:
+  en: e4285aa4f39754c6
+  zh: 334ad3a77cb65d04
+/agent-note-quota-accounting-by-concrete-model-and-settlement/alternatives-considered:
+  en: 9ed736c5afc8dda9
+  zh: 0a22802b871ac659
+/agent-note-quota-accounting-by-concrete-model-and-settlement/consequences:
+  en: be63ce0027bbfb9b
+  zh: 3d0809bdda2a2006

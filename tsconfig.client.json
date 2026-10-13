@@ -8,6 +8,7 @@
   "include": [
     "src/client",
     "src/types.ts",
+    "src/yield.ts",
     "src/css-modules.d.ts"
   ],
   "references": [
@@ -18,7 +19,10 @@
       "path": "../../api/gateway/tsconfig.client.json"
     },
     {
-      "path": "../../client/locale"
+      "path": "../../client/locale/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-conversation/tsconfig.client.json"
     },
     {
       "path": "../../client/ui-layout"

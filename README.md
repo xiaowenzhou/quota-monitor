@@ -36,6 +36,7 @@ Mount this plugin when an operator wants spend and remaining allowance beside th
 - **Token analytics** — today, this month, and all time, each split into input, output, cache-read, and cache-write, plus today's cache-hit share of billed input.
 - **Scoped to the selected route** — the provider selected in the account selector also scopes the statistics: the totals, the daily calendar with its day drilldown, and the session list all describe that route alone, so no figure mixes two providers. Selecting a route anywhere — an account chip or a breakdown row — moves the whole panel to it.
 - **Per-provider breakdown** — each route's folded tokens in the selected range (today, this month, or all time), with that route's share of the range, its calls, the models it served, its cache-hit share, the day it last ran, and its derived spend. The list is compact by default — the route in focus, every route one click away — and the route is the finest identity the fold carries: a request names a provider and a model, never the credential, so two keys behind one route still read as one row.
+- **Model details** — each concrete `provider · model` has today/month/all-time counters for calls, uncached input, output, cache reads and writes, cache-hit share and estimated spend. The row shows today's matched rates per million tokens and their effective date. Historical spend still uses each usage day's rate. Missing rates and partly unpriced totals are explicit; these are local estimates, not the credential's invoice.
 - **Derived spend** — every total, day, route row, and session also carries an amount once `pricing.rules` is configured, with the number of calls no rule priced stated beside it.
 - **Spend ceilings** — `budgets.daily` and `budgets.monthly` become bars that turn amber and then red as derived spend approaches them.
 - **Daily calendar** — the current month as a weekday-aligned calendar, one shaded cell per day with its token count, today outlined; selecting a day opens its `provider · model` breakdown.
@@ -180,16 +181,16 @@ The two halves share one wire vocabulary: the browser half never reads provider 
 | [`src/adapters/`](src/adapters/) | One module per account family, the Sub2API fingerprint, and the declarative reader |
 | [`src/pricing.ts`](src/pricing.ts) | Rule matching by route and day, and the cost accumulator every scope shares |
 | [`src/price-import.ts`](src/price-import.ts) | Reading price rules from a configured document, in either understood format |
-| [`src/usage-fold.ts`](src/usage-fold.ts) | Pure folding of session events into per-day, per-route counters, including the per-provider rollup |
+| [`src/usage-fold.ts`](src/usage-fold.ts) | Pure folding of session events into per-day, per-route counters, including provider and model rollups |
 | [`src/usage-store.ts`](src/usage-store.ts) | The fold round: reading sessions, caching folds, assembling the report |
 | [`src/usage-domain.ts`](src/usage-domain.ts) | The `quota_usage` storage domain holding one fold record per session |
 | [`src/export.ts`](src/export.ts) | The two CSV documents and the JSON report the panel downloads |
 | [`src/types.ts`](src/types.ts) | The account, usage, and snapshot types shared by both halves |
 | [`src/client/index.ts`](src/client/index.ts) | The browser mount, the dictionary registration, and the two slot registrations |
-| [`src/client/UsagePanel.tsx`](src/client/UsagePanel.tsx) | The panel root: data loading and the seven sections |
+| [`src/client/UsagePanel.tsx`](src/client/UsagePanel.tsx) | The panel root: scoped loading and accounting sections |
 | [`src/client/QuotaPill.tsx`](src/client/QuotaPill.tsx) | The composer pill: the selected route's windows or remainder, beside the model selector |
 | [`src/client/windows.ts`](src/client/windows.ts) | The plan-window vocabulary and the ranking both the account card and the pill read |
-| [`src/client/ProviderUsage.tsx`](src/client/ProviderUsage.tsx) | The per-provider token breakdown and each route's share of all tokens |
+| [`src/client/ModelUsage.tsx`](src/client/ModelUsage.tsx) | Model scopes, estimated spend and current effective per-million rates | The per-provider token breakdown and each route's share of all tokens |
 
 ### How an account read resolves
 
@@ -205,11 +206,11 @@ The private-host gate exists because of Ollama: a local `localhost:11434` daemon
 
 ### How usage is folded
 
-The report is folded from persisted session logs rather than from in-memory counters, so it survives restarts and covers sessions this process never ran. A round lists every session, reads the ones whose logs grew, and accumulates `assistant/message` events carrying provider-reported `usage` into the local calendar day of the event. The `provider · model` route comes from the most recent `request/context` event, so a session that switched models keeps separate rows.
+The report is folded from persisted session logs, so it survives restarts and covers sessions this process never ran. Each round reads and replays every readable session. `request/header.config` identifies the provider and concrete model; old logs without a header use `request/context`. Both `assistant/message` and `assistant/attempt` contribute usage: a direct message value takes precedence, otherwise the last embedded stream usage sample is used. Later settlements for the same turn and step replace the previous sample; a retry for that turn and step starts a separate billed attempt. Only events after the latest inherited `session/end-seed` marker are charged in a fork, avoiding duplicated ancestor usage. Ordinary restore markers retain history.
 
 Only provider-reported usage is folded. A step whose adapter reported none contributes nothing rather than an estimate, so every figure traces back to a provider's own accounting.
 
-Each session's fold is cached in the `quota_usage` storage domain with the log `seq` it reached, so a steady-state round costs one listing plus the sessions that actually changed. A log that shrank, rather than grew, is refolded from the start: its earlier seqs no longer identify the same events. The cache holds counters, route ids, and the last instant usage was recorded — no prompt text, tool output, or file path — and a lost record costs a refold, never a wrong figure.
+Each session's counters are cached in `quota_usage`. Accounting revision 3 invalidates legacy counters while retaining storage-domain version 2 compatibility. Replaying complete logs catches equal-length corrections and replacements of earlier settlements; identical results avoid redundant cache writes. The cache holds counters, route ids and last activity only. An unreadable session retains its current cache. Calendar scopes roll over on reads even without new requests. Reasoning is already included in output; the four token buckets remain disjoint and are never counted twice.
 
 Days are local, not UTC. A reader asking about "today" means their own day, and a UTC fold would move eight hours of usage into the wrong bucket for a CN workday.
 
@@ -258,7 +259,7 @@ The panel and its Host service add nothing to model context. Token figures are r
 - AgentRouter discloses no unit with its account and pool figures, so the panel labels them `credits` and shows them exactly as reported. Its section keys are read from an ordered candidate list rather than one pinned spelling, so a renamed field degrades that row rather than reporting a wrong number.
 - A Cline Pass account is read only through its plan windows; the separate credit-balance endpoint is not walked, so a pay-as-you-go Cline account without an active plan falls back to the manual allowance.
 - OpenCode Go's usage endpoint is not part of a documented provider API and may change upstream; a change surfaces as `invalid-response` on that card.
-- The fold reads whole session logs. A corpus with very many long sessions makes the first round after a cold start proportionally slower; subsequent rounds read only what changed.
+- The fold reads and replays whole session logs on every refresh. Very many long sessions increase refresh time; unchanged counters skip persistence but do not skip replay. This favors corrected accounting over a length-only cursor that cannot detect rewrites.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -270,7 +271,7 @@ No runtime invariant companion is published. The service owns one `llm/stream` t
 
 Panel copy is locale-owned: `src/client/locales.ts` declares the `quotaMonitor` namespace and both shipped dictionaries, the `main` registration declares `locale: NS`, and every component reads its strings through the framework `t` seat. `verify-client-ui-i18n` rejects a string reintroduced into a component.
 
-`lib/typert.host.js` and `lib/typert.remote-client.js` are generated by the repository's Typert pass, which runs only in the **root** host build (`pnpm run build:lib:host`, or `tsdown --env.DSH_BUILD_FACE host` from the repository root). A package-local `tsdown` emits `lib/index.js` and `lib/client.js` alone, so a change to a Remote request or result type would ship beside a stale wire schema — and an argument that schema does not declare is dropped before the service ever sees it. Rebuild through the root so the manifest and the types move together.
+`lib/typert.host.js` and `lib/typert.remote-client.js` are generated by the repository's Typert pass, which runs only in the **root** host build (`pnpm run build:lib:host`, or `tsdown --env.DSH_BUILD_FACE host` from the repository root). A package-local `tsdown` emits `lib/index.js` and `lib/client.js` alone, so a change to a Remote request or result type would ship beside a stale wire schema — and an argument that schema does not declare is dropped before the service ever sees it. Rebuild through the root so the manifest and the types move together. A focused verification may invoke `WorkspaceTypertGenerator.generate` for this package and the Host face, using the same generator as the root build, then bundle both halves. Verify the new `models` result in the generated schema before treating a Client build as complete.
 
 The sidebar entry id and the `main` slot key are the same string (`quota-monitor`); that identity is how the rail addresses the panel it selects, so changing one without the other silently detaches the entry.
 

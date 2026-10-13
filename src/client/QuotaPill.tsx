@@ -45,7 +45,7 @@ import type { QuotaAccount, QuotaGatewayUsage, QuotaPlanWindow } from '../types.
 import type { QuotaMonitorApi, QuotaTranslate } from './UsagePanel.tsx'
 import { fmtAmount, fmtNumber, fmtPercent, fmtTime, fmtTokens, resetLabel } from './format.ts'
 import { accountTone, hasFigure, WINDOW_KEYS, worstWindows } from './windows.ts'
-import { PILL_ID, rivalStatesRoute } from './yield.ts'
+import { PILL_ID, rivalStatesRoute } from '../yield.ts'
 import type {} from './locales.ts'
 import css from './QuotaPill.module.css'
 

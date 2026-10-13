@@ -26,7 +26,7 @@ import quotaMonitorRemote from '@deepseek-ai/dsh-extension-quota-monitor/remote'
 import { UsagePanel, type UsagePanelInjected } from './UsagePanel.tsx'
 import { QuotaPill, type QuotaPillInjected, type SeatRivals } from './QuotaPill.tsx'
 import { UsageIcon } from './UsageIcon.tsx'
-import { PILL_ID } from './yield.ts'
+import { PILL_ID } from '../yield.ts'
 import { en, NS, zh } from './locales.ts'
 
 /**

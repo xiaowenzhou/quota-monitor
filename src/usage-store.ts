@@ -2,9 +2,9 @@
  * The usage store: folds every readable session log into the report the panel
  * reads, and keeps the per-session fold cached durably.
  *
- * One fold round at a time. A session is re-read only when its log grew, so a
- * steady-state round costs one listing plus the sessions that actually
- * changed. Failures are per session: an unreadable log leaves its cached
+ * One fold round at a time. Each readable log is replayed so equal-length
+ * corrections and later settlement replacements remain visible. Unchanged
+ * counter records avoid redundant persistence. Failures are per session: an unreadable log leaves its cached
  * record intact and the round continues, because one damaged session must not
  * blank the whole report.
  * @module @deepseek-ai/dsh-extension-quota-monitor/usage-store
@@ -17,7 +17,7 @@ import type {} from '@deepseek-ai/dsh-session-query'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { QuotaBudgetConfig } from './config.ts'
 import type { QuotaPriceTable } from './pricing.ts'
-import { buildUsageReport, emptyUsageReport, foldSessionEvents } from './usage-fold.ts'
+import { buildUsageReport, emptyUsageReport, foldSessionEvents, localDay } from './usage-fold.ts'
 import type { SessionFoldState } from './usage-fold.ts'
 import { stateOf, usageDomainSpec } from './usage-domain.ts'
 import type { QuotaFoldRecord } from './usage-domain.ts'
@@ -69,7 +69,7 @@ export class QuotaUsageStore {
     return buildUsageReport(this.folds, {
       now: this.now(),
       foldedAt,
-      folding: false,
+      folding: this.folding,
       ...this.derive.prices === undefined ? {} : { prices: this.derive.prices },
       ...this.derive.budgets === undefined ? {} : { budgets: this.derive.budgets },
       ...provider === undefined ? {} : { provider },
@@ -104,7 +104,9 @@ export class QuotaUsageStore {
   async open(): Promise<() => void> {
     const domain = await this.ctx.storageDomain.open(usageDomainSpec)
     this.table = domain.table('sessions')
-    for (const [id, record] of this.table.entries()) this.folds.set(id, stateOf(record))
+    for (const [id, record] of this.table.entries()) {
+      if (record.accountingVersion === 3) this.folds.set(id, stateOf(record))
+    }
     this.report = this.build(0)
     return () => {
       void domain.close()
@@ -122,9 +124,8 @@ export class QuotaUsageStore {
    */
   current(provider?: string): QuotaUsageReport {
     if (provider !== undefined) return this.build(this.foldedAt, provider)
-    return this.folding
-      ? { ...this.report, folding: true }
-      : this.report
+    if (this.report.today !== localDay(this.now())) this.report = this.build(this.foldedAt)
+    return { ...this.report, folding: this.folding }
   }
 
   /**
@@ -181,11 +182,8 @@ export class QuotaUsageStore {
     }
 
     const previous = this.folds.get(id)
-    if (previous !== undefined
-      && events.length === previous.eventCount
-      && previous.throughSeq >= 0) return
-
     const next = foldSessionEvents(events, previous)
+    if (JSON.stringify(next) === JSON.stringify(previous)) return
     this.folds.set(id, next)
     await this.store(id, next)
   }

@@ -10,9 +10,10 @@
  * @module @deepseek-ai/dsh-extension-quota-monitor/usage-fold
  */
 
+import { lastAssistantStreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { QuotaBudgetConfig } from './config.ts'
-import { QuotaCostAccumulator } from './pricing.ts'
+import { priceFor, QuotaCostAccumulator } from './pricing.ts'
 import type { QuotaPriceTable } from './pricing.ts'
 import type {
   QuotaBudgetStatus,
@@ -20,6 +21,8 @@ import type {
   QuotaBudgetWindow,
   QuotaCostView,
   QuotaDayUsage,
+  QuotaModelScope,
+  QuotaModelSummary,
   QuotaModelUsage,
   QuotaProviderUsage,
   QuotaSessionUsage,
@@ -115,11 +118,12 @@ function addToScope(
 /**
  * The folded state of one session, cached between rounds.
  *
- * `throughSeq` is the highest raw-log seq already folded; a later round
- * resumes after it. `eventCount` detects a log that was rewritten rather than
- * appended to, which forces a full refold of that session.
+ * Cursor fields describe the last replay; they cannot prove an unchanged
+ * prefix. Every refresh replays the log, including corrections at old seqs.
  */
 export interface SessionFoldState {
+  /** Accounting semantics revision; older records must be rebuilt. */
+  accountingVersion?: 3
   throughSeq: number
   eventCount: number
   /** `YYYY-MM-DD` → `provider\u0000model` → totals, as plain JSON for persistence. */
@@ -165,67 +169,99 @@ function emptyCounts(): QuotaFoldCounts {
   return { calls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
 }
 
-/** Read a non-negative finite integer, or 0. */
+/** Read a non-negative safe integer, or 0. */
 function countOf(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 0
 }
 
 /**
- * Fold one session's events into a per-day, per-route counter map.
+ * Replay provider-reported usage, excluding the last fork-inherited prefix.
  *
- * Resumes from `previous` when the log only grew; a shorter log, or one whose
- * prefix was rewritten, is refolded from the start because its earlier seqs
- * no longer identify the same events.
- * @param events - the session's raw log events, ascending by seq.
- * @param previous - the fold state from an earlier round, when one exists.
- * @returns the updated fold state.
+ * Request headers identify the billed route; context records supply a fallback
+ * for logs with no header. The latest sample replaces a settlement for the same
+ * turn and step until a retry boundary opens a separate attempt. Reasoning is
+ * already part of output and is never added again.
+ *
+ * Full replay also detects same-length rewrites and corrections across refreshes.
+ * @param events - the complete raw session log, ascending by seq.
+ * @param previous - cached result; replay deliberately does not trust its cursor.
+ * @returns the corrected per-day and per-route counters.
  */
 export function foldSessionEvents(
   events: readonly SessionEvent[],
   previous: SessionFoldState | undefined,
 ): SessionFoldState {
-  const resumable = previous !== undefined && events.length >= previous.eventCount
-  const days: Record<string, Record<string, QuotaFoldCounts>> = resumable
-    ? structuredClone(previous.days)
-    : {}
-  let throughSeq = resumable ? previous.throughSeq : -1
-  let lastActiveAt = resumable ? previous.lastActiveAt ?? 0 : 0
-
-  // The route is logged once per change, so a step inherits the last one seen
-  // — including from events before the resume point, which is why the scan
-  // always starts at the beginning and only the accumulation is skipped.
-  let route: RouteKey | undefined
+  void previous
+  const days = new Map<string, Map<string, QuotaFoldCounts>>()
+  let throughSeq = -1
+  let lastActiveAt = 0
+  let inheritedCut = -1
   for (const event of events) {
-    if (event.type === 'request/context') {
-      const data = event.data as { provider?: unknown; model?: unknown }
-      if (typeof data.provider === 'string' && typeof data.model === 'string') {
-        route = { provider: data.provider, model: data.model }
-      }
+    if (event.type === 'session/end-seed' && event.data.inherited === true) inheritedCut = event.seq
+  }
+  let route: RouteKey | undefined
+  let hasHeader = false
+  let last: { turn: number; step: number; date: string; key: string; counts: QuotaFoldCounts } | undefined
+  for (const event of events) {
+    if (event.type === 'request/header') {
+      route = { provider: event.data.header.config.provider, model: event.data.header.config.model }
+      hasHeader = true
+    } else if (event.type === 'request/context' && !hasHeader) {
+      route = { provider: event.data.provider, model: event.data.model }
+    }
+    if (event.seq <= inheritedCut) continue
+    // Retry is plugin-owned; inspect the event name without requiring that plugin.
+    if (String(event.type) === 'llm/retry-started') {
+      if (last !== undefined && 'turn' in event.data && 'step' in event.data
+        && last.turn === event.data.turn && last.step === event.data.step) last = undefined
       continue
     }
-    if (event.type !== 'assistant/message') continue
-    if (resumable && event.seq <= previous.throughSeq) continue
-
-    const { usage } = event.data
+    if (event.type !== 'assistant/message' && event.type !== 'assistant/attempt') continue
+    const usage = event.type === 'assistant/message' && event.data.usage !== undefined
+      ? event.data.usage
+      : lastAssistantStreamChunk(event.data.stream ?? [], 'usage')?.usage
     if (usage === undefined) continue
-
     const date = localDay(event.time)
     const key = `${route?.provider ?? 'unknown'}${KEY_SEP}${route?.model ?? 'unknown'}`
-    const byRoute = days[date] ?? (days[date] = {})
-    const counts = byRoute[key] ?? (byRoute[key] = emptyCounts())
+    const next: QuotaFoldCounts = {
+      calls: 1,
+      inputTokens: countOf(usage.inputTokens),
+      outputTokens: countOf(usage.outputTokens),
+      cacheReadTokens: countOf(usage.cacheReadTokens),
+      cacheWriteTokens: countOf(usage.cacheWriteTokens),
+    }
+    const { turn, step } = event.data
+    if (last !== undefined && turn !== undefined && step !== undefined && last.turn === turn && last.step === step) {
+      const oldDay = days.get(last.date)
+      const old = oldDay?.get(last.key)
+      if (old !== undefined) {
+        old.calls -= 1
+        old.inputTokens -= last.counts.inputTokens
+        old.outputTokens -= last.counts.outputTokens
+        old.cacheReadTokens -= last.counts.cacheReadTokens
+        old.cacheWriteTokens -= last.counts.cacheWriteTokens
+        if (old.calls === 0) oldDay?.delete(last.key)
+        if (oldDay !== undefined && oldDay.size === 0) days.delete(last.date)
+      }
+    }
+    const byRoute = days.get(date) ?? new Map<string, QuotaFoldCounts>()
+    days.set(date, byRoute)
+    const counts = byRoute.get(key) ?? emptyCounts()
+    byRoute.set(key, counts)
     counts.calls += 1
-    counts.inputTokens += countOf(usage.inputTokens)
-    counts.outputTokens += countOf(usage.outputTokens)
-    counts.cacheReadTokens += countOf(usage.cacheReadTokens)
-    counts.cacheWriteTokens += countOf(usage.cacheWriteTokens)
-    throughSeq = Math.max(throughSeq, event.seq)
+    counts.inputTokens += next.inputTokens
+    counts.outputTokens += next.outputTokens
+    counts.cacheReadTokens += next.cacheReadTokens
+    counts.cacheWriteTokens += next.cacheWriteTokens
+    last = { turn, step, date, key, counts: next }
+    throughSeq = event.seq
     lastActiveAt = Math.max(lastActiveAt, event.time)
   }
-
   return {
+    accountingVersion: 3,
     throughSeq,
     eventCount: events.length,
-    days,
+    days: Object.fromEntries(Array.from(days, ([date, byRoute]) => [date, Object.fromEntries(byRoute)] as const)),
     ...lastActiveAt > 0 ? { lastActiveAt } : {},
   }
 }
@@ -338,6 +374,7 @@ export function buildUsageReport(
   const { now, foldedAt, folding, prices, budgets, provider: only } = options
   const byDay = new Map<string, DayAccumulator>()
   const byProvider = new Map<string, ProviderAccumulator>()
+  const byModel = new Map<string, { provider: string; model: string; all: ProviderScope; today: ProviderScope; month: ProviderScope }>()
   const sessions: QuotaSessionUsage[] = []
   let sessionCount = 0
 
@@ -437,6 +474,16 @@ export function buildUsageReport(
         addToScope(provider.month, row.provider, row.model, day.date, counts)
       }
 
+      const modelKey = row.provider + KEY_SEP + row.model
+      const modelSummary = byModel.get(modelKey) ?? {
+        provider: row.provider, model: row.model,
+        all: emptyScope(prices), today: emptyScope(prices), month: emptyScope(prices),
+      }
+      byModel.set(modelKey, modelSummary)
+      addToScope(modelSummary.all, row.provider, row.model, day.date, counts)
+      if (day.date === today) addToScope(modelSummary.today, row.provider, row.model, day.date, counts)
+      if (day.date.startsWith(monthPrefix)) addToScope(modelSummary.month, row.provider, row.model, day.date, counts)
+
       models.push({
         provider: row.provider,
         model: row.model,
@@ -487,6 +534,24 @@ export function buildUsageReport(
   providers.sort((left, right) => right.totalTokens - left.totalTokens
     || right.calls - left.calls
     || left.provider.localeCompare(right.provider))
+  const modelSummaries: QuotaModelSummary[] = [...byModel.values()].map((entry) => {
+    const rule = prices === undefined ? undefined : priceFor(prices, entry.provider, entry.model, today)
+    return {
+      provider: entry.provider, model: entry.model,
+      all: modelScope(entry.all), today: modelScope(entry.today), month: modelScope(entry.month),
+      ...rule === undefined || prices === undefined ? {} : {
+        rate: {
+          currency: prices.currency,
+          inputPerMillion: rule.inputPerMillion, outputPerMillion: rule.outputPerMillion,
+          cacheReadPerMillion: rule.cacheReadPerMillion ?? rule.inputPerMillion,
+          cacheWritePerMillion: rule.cacheWritePerMillion ?? rule.inputPerMillion,
+          ...rule.from === undefined ? {} : { from: rule.from },
+        },
+      },
+    }
+  })
+  modelSummaries.sort((left, right) => right.all.totalTokens - left.all.totalTokens
+    || left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model))
   const hitPercent = cacheHitPercent(todayTotals)
   const today$ = todayCost.view()
   const month$ = monthCost.view()
@@ -501,12 +566,23 @@ export function buildUsageReport(
     ...month$ === undefined ? {} : { monthCost: month$ },
     ...allTime$ === undefined ? {} : { allTimeCost: allTime$ },
     ...budgetsOf(budgets, prices, today$, month$),
+    models: Object.freeze(modelSummaries),
     providers: Object.freeze(providers),
     days: Object.freeze(days),
     sessions: Object.freeze(sessions),
     sessionCount,
     foldedAt,
     folding,
+  }
+}
+
+/** Materialize the four token buckets, estimated cost and input cache ratio. */
+function modelScope(scope: ProviderScope): QuotaModelScope {
+  const cost = scope.cost.view()
+  const hit = cacheHitPercent(scope.totals)
+  return { ...scope.totals, calls: scope.calls,
+    ...cost === undefined ? {} : { cost },
+    ...hit === undefined ? {} : { cacheHitPercent: hit },
   }
 }
 
