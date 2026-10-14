@@ -18,8 +18,8 @@
   en: 9bdb32a05d8e801e
   zh: a002dada15cd419b
 /deepseek-ai-dsh-extension-quota-monitor/use-this-package/what-the-panel-reports:
-  en: e9e68c8cad9f00c4
-  zh: b8191befacc65b66
+  en: 162b35bbed6b45e2
+  zh: f0a32f9bdd1b2210
 /deepseek-ai-dsh-extension-quota-monitor/use-this-package/which-accounts-can-be-read:
   en: 59806839aaf30e32
   zh: 9a936df1399e6c1a
@@ -33,8 +33,8 @@
   en: e053cbb51da8fe30
   zh: d301af83b6a12584
 /deepseek-ai-dsh-extension-quota-monitor/use-this-package/teaching-it-a-new-gateway:
-  en: 93b60c1b93ddecca
-  zh: 209460e47d992585
+  en: 1f10aa1a8b01a1fa
+  zh: 08fd271b70a72d4c
 /deepseek-ai-dsh-extension-quota-monitor/understand-the-implementation:
   en: 9e3434800d17e9e9
   zh: 44c1c59a680dc9a1
@@ -42,8 +42,8 @@
   en: e5dc1411c584700c
   zh: 33dea2be10acd318
 /deepseek-ai-dsh-extension-quota-monitor/understand-the-implementation/how-an-account-read-resolves:
-  en: 081d209b49e00cb6
-  zh: 48b96c9709b8ea75
+  en: 8bbf3ba552ddf8bf
+  zh: 9edbc29084efb852
 /deepseek-ai-dsh-extension-quota-monitor/understand-the-implementation/how-usage-is-folded:
   en: 81a653f04264647b
   zh: 76cf6350b5fb5e9d
@@ -57,14 +57,14 @@
   en: 58c4ba875df2ee82
   zh: 7efe09699d09131e
 /deepseek-ai-dsh-extension-quota-monitor/model-experience:
-  en: 016f238f8be3b166
-  zh: e79a92b8f77af3f3
+  en: dee96805f5e7159a
+  zh: 9c86597cbdb7bbe5
 /deepseek-ai-dsh-extension-quota-monitor/model-experience/kv-cache-effect:
   en: 84f78edea3d15fdd
   zh: 8f5c85b73f020be4
 /deepseek-ai-dsh-extension-quota-monitor/known-limitations-and-deferred-work:
-  en: c4e82e46655bbd22
-  zh: 4d4d5de78f7543f5
+  en: febdf7c914225022
+  zh: be6ff11799705701
 /deepseek-ai-dsh-extension-quota-monitor/known-limitations-and-deferred-work/dev-note:
   en: 351826c64c8632fa
   zh: c2364984933e3d03

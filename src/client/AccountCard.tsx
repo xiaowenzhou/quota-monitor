@@ -152,6 +152,11 @@ function Selector({ t, providers, selected, onSelect }: {
             {/* Only a route whose keys would otherwise look alike states the
                 figure here; a single key states it in the card below. */}
             {grouped && figure !== undefined ? <span className={css.selectorFigure}>{figure}</span> : null}
+            {/* Which key a route that routes its credentials is serving with
+                now, so the reader knows which chip the next call spends. */}
+            {grouped && credentialRef !== undefined && credentialRef === entry.activeCredentialRef
+              ? <span className={css.liveDot} aria-hidden="true" />
+              : null}
           </button>
         })}
       </span>

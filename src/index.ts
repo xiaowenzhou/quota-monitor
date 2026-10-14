@@ -82,12 +82,63 @@ interface ProviderProfile {
 /** A profile with nothing configured. */
 const EMPTY_PROFILE: ProviderProfile = Object.freeze({})
 
+/**
+ * Credential routing state of one route, kept in memory for the process's life.
+ *
+ * A router holds the value it last read or wrote into
+ * {@link QuotaMonitorEntry.activeRef}, so a request that resolves to the value
+ * already there costs no write, and the reference the route authenticates with
+ * while none of the monitored keys match that value.
+ */
+interface QuotaRouteRouter {
+  /** Reference the route's profile authenticates with. */
+  readonly activeRef: string
+  /** Value of {@link activeRef} as this process last saw it. */
+  value: string | undefined
+  /** Monitored credential that value belongs to, when one does. */
+  credentialRef: string | undefined
+  /**
+   * Whether the route's profile was checked to authenticate with
+   * {@link activeRef}; undefined until the first request decides it.
+   */
+  wired: boolean | undefined
+  /** Set once routing was refused, so the reason is reported once per route. */
+  refused: boolean
+}
+
 /** One monitored credential: a provider route plus the reference it is read with. */
 interface QuotaAccountSlot {
   /** Provider route key. */
   readonly id: string
   /** Credential reference this route's account is read with, when one is named. */
   readonly credentialRef?: string
+}
+
+/**
+ * How much room one reading leaves, as a comparable share.
+ *
+ * A plan window states its own share, a balance with a disclosed total divides
+ * out, and a bare balance is compared against the largest bare balance on the
+ * route: `scale` carries that maximum, because two wallets are only comparable
+ * by their own figures. Readings that state no figure at all score nothing and
+ * are left out of the choice.
+ * @param account - one credential's latest reading.
+ * @param scale - largest bare balance among the readings being compared.
+ * @returns the share in 0..1, or undefined when the reading states no figure.
+ */
+function headroomOf(account: QuotaAccount, scale: number): number | undefined {
+  if (account.unlimited === true) return 1
+  const windows = account.planWindows
+  if (windows !== undefined && windows.length > 0) {
+    const worst = Math.max(...windows.map(window => window.percentUsed))
+    return Math.max(0, Math.min(1, 1 - worst / 100))
+  }
+  const remaining = account.remaining
+  if (remaining === undefined) return undefined
+  const used = account.used
+  if (used !== undefined && used + remaining > 0) return remaining / (used + remaining)
+  if (scale <= 0) return remaining > 0 ? 1 : 0
+  return Math.min(1, remaining / scale)
 }
 
 /**
@@ -153,6 +204,11 @@ export class QuotaMonitorService extends TypertRemoteService {
    * Absent until the panel asks for a reading.
    */
   private focused: QuotaAccountSlot | undefined
+  /**
+   * Credential routing state per route, one entry for each monitor naming an
+   * `activeRef`. Absent for every other route, which the monitor only reads.
+   */
+  private readonly routers = new Map<string, QuotaRouteRouter>()
 
   /**
    * @param ctx - Host context carrying the llm, settings, credentials, session
@@ -162,6 +218,16 @@ export class QuotaMonitorService extends TypertRemoteService {
   constructor(ctx: Context, public config: QuotaMonitorConfig) {
     super(ctx, 'quotaMonitor')
     assertConsistent(config)
+    for (const [id, entry] of Object.entries(config.monitors)) {
+      if (entry.activeRef === undefined) continue
+      this.routers.set(id, {
+        activeRef: entry.activeRef,
+        value: undefined,
+        credentialRef: undefined,
+        wired: undefined,
+        refused: false,
+      })
+    }
     this.prices = config.pricing.rules.length === 0
       ? undefined
       : {
@@ -193,6 +259,7 @@ export class QuotaMonitorService extends TypertRemoteService {
       this.refresh()
     })
     const closeUsage = await this.usageStore.open()
+    await this.identifyRoutedCredentials()
 
     const timers: Array<ReturnType<typeof setTimeout>> = []
     if (this.config.refresh.enabled) {
@@ -385,6 +452,124 @@ export class QuotaMonitorService extends TypertRemoteService {
   }
 
   /**
+   * Point one route's credential at the healthiest monitored key.
+   *
+   * Runs before the request that authenticates with it, and only when this
+   * route routes at all: the value the process last saw is compared first, so a
+   * steady route costs one credential resolution per request and no write.
+   *
+   * A route whose profile does not authenticate with the routing reference is
+   * reported once and then left untouched — the choice would have no effect on
+   * the request, and rotating a credential nothing reads is worse than saying
+   * so. What is written is the value of one of the monitored keys, read from
+   * the same seam the route would have read it from.
+   * @param id - provider route key about to serve a request.
+   */
+  private async routeCredential(id: string): Promise<void> {
+    const router = this.routers.get(id)
+    if (router === undefined || router.refused) return
+    if (router.wired === undefined) {
+      // The profile is read from user settings, which the registry mirrors only
+      // after a refresh; a route reached before that would otherwise look
+      // unwired and lose routing for the process's life.
+      this.refresh()
+      const named = this.profileOf(id).apiKeyEnv
+      router.wired = named === router.activeRef
+      if (!router.wired) {
+        router.refused = true
+        this.ctx.logger.error(
+          `quota monitor: monitors.${id}.activeRef names ${router.activeRef}, but route ${id} authenticates with `
+          + `${typeof named === 'string' ? named : 'no named credential'}; leaving its credential untouched`,
+        )
+        return
+      }
+    }
+    const chosen = this.healthiestSlot(id)
+    if (chosen?.credentialRef === undefined) return
+    // A request whose credential value already is the chosen key's is not
+    // rewritten: the write is durable and the read is what the route does next.
+    const value = await this.resolveApiKey(chosen.credentialRef)
+    if (value === undefined) return
+    const current = router.value ?? await this.resolveApiKey(router.activeRef)
+    router.value = current
+    if (current === value) {
+      router.credentialRef = chosen.credentialRef
+      return
+    }
+    try {
+      await this.ctx.credentials.set(brandString<CredentialRef>(router.activeRef), value)
+    } catch (error) {
+      router.refused = true
+      this.ctx.logger.error(`quota monitor: cannot route ${id} through ${router.activeRef}: ${String(error)}`)
+      return
+    }
+    router.value = value
+    router.credentialRef = chosen.credentialRef
+    this.ctx.logger.info(`quota monitor: ${id} now authenticates with ${chosen.credentialRef}`)
+  }
+
+  /**
+   * The monitored credential of one route with the most room left.
+   *
+   * Readings that state no figure are not candidates, so a route with no
+   * reading yet — and every key that could not be read — leaves the route
+   * exactly as the deployment configured it rather than guessing.
+   * @param id - provider route key.
+   * @returns the chosen credential's slot, or undefined when none states a figure.
+   */
+  private healthiestSlot(id: string): QuotaAccountSlot | undefined {
+    const slots = this.slotsOf(id)
+    let scale = 0
+    for (const slot of slots) {
+      if (slot.credentialRef === undefined) continue
+      const account = this.accounts.get(accountKey(slot))
+      if (account?.status !== 'ok' || account.remaining === undefined) continue
+      if (account.used === undefined) scale = Math.max(scale, account.remaining)
+    }
+    let best: { slot: QuotaAccountSlot; headroom: number } | undefined
+    for (const slot of slots) {
+      if (slot.credentialRef === undefined) continue
+      const account = this.accounts.get(accountKey(slot))
+      if (account?.status !== 'ok') continue
+      const headroom = headroomOf(account, scale)
+      if (headroom === undefined) continue
+      if (best === undefined || headroom > best.headroom) best = { slot, headroom }
+    }
+    return best?.slot
+  }
+
+  /**
+   * Recognize which monitored credential a routing route already authenticates
+   * with, so the panel can name it before the process has routed anything.
+   *
+   * A route set up before this process started holds one of the monitored keys
+   * already; matching the values is the only way to name it, because the stored
+   * value is opaque and the reference it came from was forgotten by then.
+   */
+  private async identifyRoutedCredentials(): Promise<void> {
+    for (const [id, router] of this.routers) {
+      const value = await this.resolveApiKey(router.activeRef)
+      router.value = value
+      router.credentialRef = await this.matchingCredential(id, value)
+    }
+  }
+
+  /**
+   * The monitored credential of one route whose stored value is one value.
+   * @param id - provider route key.
+   * @param value - credential value to match, or undefined to match nothing.
+   * @returns the credential reference, or undefined when none matches.
+   */
+  private async matchingCredential(id: string, value: string | undefined): Promise<string | undefined> {
+    if (value === undefined) return undefined
+    for (const slot of this.slotsOf(id)) {
+      if (slot.credentialRef === undefined) continue
+      if (await this.resolveApiKey(slot.credentialRef) === value) return slot.credentialRef
+    }
+    return undefined
+  }
+
+  /**
    * The monitored credential one account request names.
    * @param request - provider route and optional credential reference.
    * @returns the slot, defaulting to the route's first monitored credential.
@@ -570,17 +755,25 @@ export class QuotaMonitorService extends TypertRemoteService {
     return bucket.inputTokens + bucket.outputTokens + bucket.cacheReadTokens + bucket.cacheWriteTokens
   }
 
-  /** Count one streaming call per provider, forwarding chunks unchanged. */
+  /**
+   * Count one streaming call per provider, forwarding chunks unchanged.
+   *
+   * A route that routes its credentials is pointed at the healthiest key first:
+   * the adapter resolves the credential when it starts the request, which is
+   * after this generator's first step and before its first chunk.
+   */
   private tapStream(
     options: GenerateOptions,
     next: () => AsyncIterable<StreamChunk>,
   ): AsyncIterable<StreamChunk> {
     const id = options.provider || 'unknown'
     const bucket = this.bucketFor(id, this.names.get(id) ?? id)
+    const route = this.routers.has(id) ? this.routeCredential(id) : undefined
     const recordUsage = (chunk: StreamChunk): void => {
       if (chunk.type === 'usage') this.addUsage(bucket, chunk.usage)
     }
     return (async function* () {
+      if (route !== undefined) await route
       let counted = false
       try {
         for await (const chunk of next()) {
@@ -750,6 +943,7 @@ export class QuotaMonitorService extends TypertRemoteService {
       const identity = resolveProviderIdentity(id, baseURL, monitor?.adapter)
       const adapter = monitor?.declarative !== undefined ? 'declarative' : identity.adapter
       const slots = this.slotsOf(id)
+      const router = this.routers.get(id)
       // The route-level fields describe its first monitored credential, which
       // is the one a single-credential route has always reported.
       const account = slots[0] === undefined ? undefined : this.accounts.get(accountKey(slots[0]))
@@ -768,6 +962,7 @@ export class QuotaMonitorService extends TypertRemoteService {
         status: account?.status ?? 'unsupported',
         ...account?.warning === undefined ? {} : { warning: account.warning },
         credentialRefs: slots.flatMap(slot => slot.credentialRef === undefined ? [] : [slot.credentialRef]),
+        ...router?.credentialRef === undefined ? {} : { activeCredentialRef: router.credentialRef },
         accounts,
       })
     }

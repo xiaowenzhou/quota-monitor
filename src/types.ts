@@ -207,6 +207,13 @@ export interface QuotaProviderEntry {
    */
   credentialRefs: readonly string[]
   /**
+   * The monitored credential whose value the route currently authenticates
+   * with, when this monitor routes among them and the route's credential is one
+   * of them. Absent while no request has run since load, or when the route's
+   * credential is none of the monitored keys.
+   */
+  activeCredentialRef?: string
+  /**
    * Readings of {@link credentialRefs}, one per credential read so far and in
    * the same order. A route not yet read carries none, so a selector can draw
    * every monitored credential before the first answer arrives.

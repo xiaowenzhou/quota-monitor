@@ -710,6 +710,25 @@ describe('quota monitor usage panel', () => {
     expect(chipA.getAttribute('aria-pressed')).toBe('false')
   })
 
+  it('marks the key a routing route is serving with', async () => {
+    const keyA: QuotaAccount = { ...ACCOUNT, credentialRef: 'DEEPSEEK_KEY_A', remaining: 42.5 }
+    const keyB: QuotaAccount = { ...ACCOUNT, credentialRef: 'DEEPSEEK_KEY_B', remaining: 7 }
+    const routed: QuotaSnapshot = { ...SNAPSHOT, providers: [{
+      ...SNAPSHOT.providers[0]!,
+      credentialRefs: ['DEEPSEEK_KEY_A', 'DEEPSEEK_KEY_B'],
+      activeCredentialRef: 'DEEPSEEK_KEY_B',
+      accounts: [keyA, keyB],
+    }] }
+    render(<UsagePanel {...props(api({ readPendingAccounts: () => Promise.resolve(ok(routed)) }))} />)
+
+    const chipA = await screen.findByRole('button', { name: /DEEPSEEK_KEY_A/u })
+    const chipB = screen.getByRole('button', { name: /DEEPSEEK_KEY_B/u })
+    // Every chip states its status dot; the key the next call spends carries one
+    // marker more, so the reader can tell which key is in play.
+    expect(chipA.querySelectorAll('[aria-hidden="true"]').length).toBe(1)
+    expect(chipB.querySelectorAll('[aria-hidden="true"]').length).toBe(2)
+  })
+
   it('re-reads every key when the header refresh runs', async () => {
     const refreshed: QuotaSnapshot = { ...SNAPSHOT, providers: [{
       ...SNAPSHOT.providers[0]!,

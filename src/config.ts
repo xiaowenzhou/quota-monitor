@@ -145,6 +145,17 @@ export interface QuotaMonitorEntry {
    */
   credentialRefs?: string[]
   /**
+   * Credential reference this monitor keeps pointed at the healthiest monitored
+   * credential, so each model request authenticates with that key.
+   *
+   * The route's own profile has to name this reference as its `apiKeyEnv`: the
+   * monitor writes the chosen key's value there and never writes a monitored
+   * credential, so the keys themselves stay as the deployment stored them.
+   * Requires at least two {@link credentialRefs} entries and must not be one of
+   * them. Absent, every monitored credential stays read-only.
+   */
+  activeRef?: string
+  /**
    * Whether this route's account endpoint may be reached over plaintext `http:`
    * although its host is not on this machine.
    *
@@ -269,6 +280,7 @@ const monitorEntry = zs.object({
   usageBaseURL: zs.string(),
   credentialRef: zs.string(),
   credentialRefs: zs.array(zs.string()),
+  activeRef: zs.string(),
   allowPlaintextEndpoint: zs.boolean(),
   allowedHosts: zs.array(zs.string()),
   warningRemaining: zs.number(),
@@ -343,9 +355,14 @@ export const Config: zs<QuotaMonitorConfigInput, QuotaMonitorConfig> = zs.object
  * A monitored credential list has to name readable credentials: a name outside
  * the reference grammar could never resolve, and a repeat would draw the same
  * reading twice while hiding that the deployment expected another key.
+ *
+ * Routing writes the chosen key's value into one reference, so that reference
+ * must not be a monitored key — that would destroy the key it was chosen from —
+ * and there is nothing to choose between below two monitored keys.
  * @param config - the validated plugin config.
- * @throws {Error} when a budget is configured with no price behind it, or a
- * monitored credential list carries an invalid or repeated reference.
+ * @throws {Error} when a budget is configured with no price behind it, a
+ * monitored credential list carries an invalid or repeated reference, or a
+ * routing reference is unusable.
  */
 export function assertConsistent(config: QuotaMonitorConfig): void {
   const budgeted = config.budgets.daily !== undefined || config.budgets.monthly !== undefined
@@ -370,6 +387,20 @@ export function assertConsistent(config: QuotaMonitorConfig): void {
     }
     if (new Set(refs).size !== refs.length) {
       throw new Error(`quota monitor: monitors.${id}.credentialRefs repeats a credential reference`)
+    }
+  }
+  for (const [id, entry] of Object.entries(config.monitors)) {
+    const active = entry.activeRef
+    if (active === undefined) continue
+    if (!CREDENTIAL_REF_PATTERN.test(active)) {
+      throw new Error(`quota monitor: monitors.${id}.activeRef names "${active}", which is not a credential reference`)
+    }
+    const refs = entry.credentialRefs ?? []
+    if (refs.includes(active)) {
+      throw new Error(`quota monitor: monitors.${id}.activeRef names a monitored credential, so routing would overwrite that key`)
+    }
+    if (refs.length < 2) {
+      throw new Error(`quota monitor: monitors.${id}.activeRef needs at least two credentialRefs entries to route among`)
     }
   }
 }

@@ -228,6 +228,14 @@
 .dotWarn { background: var(--dsw-alias-state-warn-primary); }
 .dotError { background: var(--dsw-alias-state-error-primary); }
 
+.liveDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsw-alias-state-success-primary);
+}
+
 /* Several watched credentials behind one route: the route name, then one chip
    per key, so the figures line up for comparison. */
 .selectorGroup {
