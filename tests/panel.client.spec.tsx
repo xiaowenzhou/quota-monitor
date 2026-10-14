@@ -219,6 +219,42 @@ function elementCarrying(tag: string, text: string): (content: string, element: 
 }
 
 describe('quota monitor usage panel', () => {
+  it('follows provider topology updates, reconciles selected keys and keeps history separate', async () => {
+    let latest = SNAPSHOT
+    let invalidate = () => {}
+    const unsubscribe = vi.fn()
+    const subscribeProviders = vi.fn((listener: () => void) => {
+      invalidate = listener
+      return unsubscribe
+    })
+    const getAccount = vi.fn(async (request: { provider: string; credentialRef?: string }) => ok({
+      ...ACCOUNT, id: request.provider, credentialRef: request.credentialRef, remaining: request.provider === 'deepseek' ? 42.5 : 17,
+    }))
+    const getSnapshot = vi.fn(async () => ok(latest))
+    const getUsage = vi.fn(async () => ok(USAGE))
+    const { unmount } = render(<UsagePanel {...props(api({ getSnapshot, getAccount, getUsage }))} subscribeProviders={subscribeProviders} />)
+    expect(await screen.findByText('42.5 CNY')).toBeTruthy()
+    latest = { ...SNAPSHOT, providers: [{ ...SNAPSHOT.providers[0]!, id: 'added', name: 'Added', credentialRefs: ['ADDED_KEY'] }] }
+    act(() => invalidate())
+    expect(await screen.findByRole('button', { name: 'Added', exact: true })).toBeTruthy()
+    await waitFor(() => expect(getAccount).toHaveBeenLastCalledWith({ provider: 'added', credentialRef: 'ADDED_KEY', refresh: false }))
+    expect(screen.queryByRole('button', { name: 'DeepSeek', exact: true })).toBeNull()
+    expect(await screen.findByText('17 CNY')).toBeTruthy()
+    // The removed provider remains only in the historic comparison, visibly labelled.
+    expect(await screen.findByText('Historical provider')).toBeTruthy()
+    latest = { ...latest, providers: [{ ...latest.providers[0]!, name: 'Renamed', credentialRefs: ['REPLACED_KEY'] }] }
+    act(() => invalidate())
+    expect(await screen.findByRole('button', { name: 'Renamed', exact: true })).toBeTruthy()
+    await waitFor(() => expect(getAccount).toHaveBeenLastCalledWith({ provider: 'added', credentialRef: 'REPLACED_KEY', refresh: false }))
+    latest = { ...latest, providers: [] }
+    act(() => invalidate())
+    expect(await screen.findByText('No provider is configured yet')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByText('17 CNY')).toBeNull())
+    await waitFor(() => expect(getUsage).toHaveBeenCalledWith({ refresh: false }))
+    unmount()
+    expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+
   it('renders the account figure, the token totals, and the derived budgets', async () => {
     render(<UsagePanel {...props(api())} />)
 
@@ -697,8 +733,9 @@ describe('quota monitor usage panel', () => {
     expect(chipB.textContent).toContain('7 CNY')
     // The route names the group its two chips belong to, so the pair reads as
     // the keys of one account rather than as two accounts.
-    expect(chipA.parentElement).toBe(chipB.parentElement)
-    expect(chipA.parentElement?.textContent).toContain('DeepSeek')
+    expect(chipA.closest('fieldset')).toBe(chipB.closest('fieldset'))
+    expect(within(chipA.closest('fieldset')!).getByText('Provider keys (2)')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'DeepSeek' })).toHaveLength(1)
 
     fireEvent.click(chipB)
     await waitFor(() => {
@@ -725,8 +762,8 @@ describe('quota monitor usage panel', () => {
     const chipB = screen.getByRole('button', { name: /DEEPSEEK_KEY_B/u })
     // Every chip states its status dot; the key the next call spends carries one
     // marker more, so the reader can tell which key is in play.
-    expect(chipA.querySelectorAll('[aria-hidden="true"]').length).toBe(1)
-    expect(chipB.querySelectorAll('[aria-hidden="true"]').length).toBe(2)
+    expect(within(chipA.parentElement!).getByRole('button', { name: 'Use this key' }).hasAttribute('disabled')).toBe(false)
+    expect(within(chipB.parentElement!).getByRole('button', { name: 'Active key' }).hasAttribute('disabled')).toBe(true)
   })
 
   it('re-reads every key when the header refresh runs', async () => {

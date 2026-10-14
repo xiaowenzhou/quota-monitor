@@ -18,6 +18,10 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import zs from '@deepseek-ai/schemastery'
 import { readFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
+import { keyDomainSpec, type ManagedProvider } from './key-domain.ts'
+import { chooseWithJev } from './routing.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
 import type { GenerateOptions, LlmConfigurableProvider, LlmProviderInfo, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
@@ -38,6 +42,7 @@ import { QuotaUsageStore } from './usage-store.ts'
 import type {
   QuotaAccount,
   QuotaAccountRequest,
+  QuotaKeyRequest,
   QuotaBalanceEstimate,
   QuotaExportDocument,
   QuotaExportRequest,
@@ -128,6 +133,7 @@ interface QuotaAccountSlot {
  */
 function headroomOf(account: QuotaAccount, scale: number): number | undefined {
   if (account.unlimited === true) return 1
+  if (account.remaining !== undefined && account.remaining <= 0) return 0
   const windows = account.planWindows
   if (windows !== undefined && windows.length > 0) {
     const worst = Math.max(...windows.map(window => window.percentUsed))
@@ -209,6 +215,21 @@ export class QuotaMonitorService extends TypertRemoteService {
    * `activeRef`. Absent for every other route, which the monitor only reads.
    */
   private readonly routers = new Map<string, QuotaRouteRouter>()
+  private readonly managed = new Map<string, ManagedProvider>()
+  private keyTable: KvTable<string, ManagedProvider> | undefined
+  private readonly cooldowns = new Map<string, number>()
+  private readonly decisions = new Map<string, string>()
+  private readonly locks = new Map<string, Promise<void>>()
+
+  /** Serialize credential changes with requests that consume that credential. */
+  private async lockRoute(id: string): Promise<() => void> {
+    const previous = this.locks.get(id) ?? Promise.resolve()
+    let release = () => {}
+    const current = new Promise<void>(resolve => { release = resolve })
+    this.locks.set(id, current)
+    await previous
+    return () => { release(); if (this.locks.get(id) === current) this.locks.delete(id) }
+  }
 
   /**
    * @param ctx - Host context carrying the llm, settings, credentials, session
@@ -259,6 +280,15 @@ export class QuotaMonitorService extends TypertRemoteService {
       this.refresh()
     })
     const closeUsage = await this.usageStore.open()
+    const keys = await this.ctx.storageDomain.open(keyDomainSpec)
+    this.keyTable = keys.table('providers')
+    for (const [id, state] of this.keyTable.entries()) {
+      this.managed.set(id, state)
+      if (state.activeRef !== undefined) this.routers.set(id, {
+        activeRef: state.activeRef, value: undefined, credentialRef: undefined, wired: undefined, refused: false,
+      })
+    }
+    this.ctx.effect(() => () => { void keys.close() }, 'quota-monitor.keys')
     await this.identifyRoutedCredentials()
 
     const timers: Array<ReturnType<typeof setTimeout>> = []
@@ -396,6 +426,102 @@ export class QuotaMonitorService extends TypertRemoteService {
     return this.snapshot()
   }
 
+  /** Write-only key management. Removing a slot detaches it without deleting the credential. */
+  @Remote('manageKey')
+  async manageKey(request: QuotaKeyRequest): Promise<QuotaSnapshot> {
+    this.refresh()
+    if (!this.names.has(request.provider)) throw new Error('Unknown provider')
+    const unlock = await this.lockRoute(request.provider)
+    try {
+      const id = request.provider
+      const previous = this.managed.get(id)
+      const state: ManagedProvider = previous === undefined ? {
+        refs: this.slotsOf(id).flatMap(slot => slot.credentialRef === undefined ? [] : [slot.credentialRef]),
+        labels: {}, mode: this.routers.has(id) ? 'quota' : 'manual',
+        ...this.routers.get(id) === undefined ? {} : { activeRef: this.routers.get(id)!.activeRef },
+      } : { ...previous, refs: [...previous.refs], labels: { ...previous.labels } }
+      const ref = request.credentialRef
+      const name = request.name?.trim().slice(0, 120)
+      if (request.action === 'add') {
+        const source = ref ?? `QUOTA_KEY_${randomUUID().replaceAll('-', '_')}`
+        if (!CREDENTIAL_REF_PATTERN.test(source)) throw new Error('Invalid credential reference')
+        if (source === state.activeRef || state.refs.includes(source)) throw new Error('Credential already monitored or reserved for routing')
+        if (request.key !== undefined) {
+          if (!request.key.trim()) throw new Error('Key must not be empty')
+          // Existing references are never overwritten by the add operation.
+          if (await this.resolveApiKey(source) !== undefined) throw new Error('Credential reference already exists')
+          await this.ctx.credentials.set(brandString<CredentialRef>(source), request.key.trim())
+        } else if (await this.resolveApiKey(source) === undefined) throw new Error('Credential is not configured')
+        state.refs.push(source)
+        if (name) state.labels[source] = name
+      } else if (request.action === 'routing') {
+        if (!['manual', 'quota', 'jev'].includes(request.mode ?? '')) throw new Error('Invalid routing mode')
+        state.mode = request.mode!
+        if (state.mode === 'manual') {
+          const selectedRef = this.routers.get(id)?.credentialRef ?? state.selectedRef ?? state.refs[0]
+          if (selectedRef !== undefined) state.selectedRef = selectedRef
+        }
+        if (request.jevKey?.trim()) {
+          const jevRef = state.jevRef ?? `QUOTA_JEV_${randomUUID().replaceAll('-', '_')}`
+          await this.ctx.credentials.set(brandString<CredentialRef>(jevRef), request.jevKey.trim())
+          state.jevRef = jevRef
+        }
+        if (state.mode === 'jev' && (state.jevRef === undefined || await this.resolveApiKey(state.jevRef) === undefined)) {
+          throw new Error('Configure a Jev OpenRouter key first')
+        }
+      } else {
+        if (ref === undefined || !state.refs.includes(ref)) throw new Error('Key is not monitored by this provider')
+        if (request.action === 'rename') {
+          if (name) state.labels[ref] = name
+          else delete state.labels[ref]
+        } else if (request.action === 'remove') {
+          if (state.refs.length < 2) throw new Error('Keep at least one key')
+          if (this.routers.get(id)?.credentialRef === ref || this.profileOf(id).apiKeyEnv === ref) throw new Error('Switch away from the active key first')
+          state.refs = state.refs.filter(item => item !== ref)
+          delete state.labels[ref]
+          this.accounts.delete(accountKey({ id, credentialRef: ref }))
+        } else if (request.action === 'activate') {
+          if (await this.resolveApiKey(ref) === undefined) throw new Error('Credential is not configured')
+          state.mode = 'manual'
+          state.selectedRef = ref
+        } else throw new Error('Invalid key action')
+      }
+      await this.saveKeys(id, state)
+      if (request.action === 'activate' || request.action === 'routing' && state.mode !== 'manual') {
+        await this.wireRouter(id, state)
+        await this.routeCredential(id)
+      }
+      return this.snapshot()
+    } finally { unlock() }
+  }
+
+  private async saveKeys(id: string, state: ManagedProvider): Promise<void> {
+    if (this.keyTable === undefined) throw new Error('Key storage is not ready')
+    await this.keyTable.put(id, state)
+    this.managed.set(id, state)
+  }
+
+  /** Preserve the original key and wire a dedicated credential into the provider profile. */
+  private async wireRouter(id: string, state: ManagedProvider): Promise<void> {
+    const descriptor = this.profiles.get(id)
+    if (descriptor === undefined) throw new Error('This provider does not expose editable credential settings')
+    const original = this.profileOf(id).apiKeyEnv
+    if (typeof original !== 'string' || !CREDENTIAL_REF_PATTERN.test(original)) throw new Error('Provider must use a named API credential')
+    const activeRef = state.activeRef ?? `QUOTA_ACTIVE_${randomUUID().replaceAll('-', '_')}`
+    if (state.refs.includes(activeRef)) throw new Error('Routing credential must differ from monitored keys')
+    if (original !== activeRef) {
+      const value = await this.resolveApiKey(original)
+      if (value === undefined) throw new Error('Provider credential is unavailable')
+      await this.ctx.credentials.set(brandString<CredentialRef>(activeRef), value)
+      state.activeRef = activeRef
+      await this.saveKeys(id, state)
+      const section = this.ctx.settings.describe().find(row => row.ns === descriptor.settingsNs)
+      if (section === undefined) throw new Error('Provider settings are unavailable')
+      await this.ctx.settings.mutate(descriptor.settingsNs, [{ op: 'set', path: [...descriptor.settingsPath, 'apiKeyEnv'], value: activeRef }], section.revision)
+    }
+    this.routers.set(id, { activeRef, value: undefined, credentialRef: undefined, wired: undefined, refused: false })
+  }
+
   /** Refold usage, then re-read every monitored credential. */
   private async runBackgroundRound(): Promise<void> {
     await this.reloadPrices(false)
@@ -417,7 +543,8 @@ export class QuotaMonitorService extends TypertRemoteService {
    * @param pending - which slots to read; absent reads every monitored slot.
    */
   private async readRouteAccounts(pending?: (slot: QuotaAccountSlot) => boolean): Promise<void> {
-    await Promise.all([...this.usage.keys()].map(async id => {
+    this.refresh()
+    await Promise.all([...this.names.keys()].map(async id => {
       for (const slot of this.slotsOf(id)) {
         if (pending !== undefined && !pending(slot)) continue
         await this.readAccount(slot)
@@ -435,7 +562,7 @@ export class QuotaMonitorService extends TypertRemoteService {
    * @returns one slot per monitored credential.
    */
   private slotsOf(id: string): readonly QuotaAccountSlot[] {
-    const configured = resolveMonitor(this.config, id)?.credentialRefs
+    const configured = this.managed.get(id)?.refs ?? resolveMonitor(this.config, id)?.credentialRefs
     if (configured !== undefined && configured.length > 0) {
       return configured.map(credentialRef => ({ id, credentialRef }))
     }
@@ -484,8 +611,32 @@ export class QuotaMonitorService extends TypertRemoteService {
         return
       }
     }
-    const chosen = this.healthiestSlot(id)
-    if (chosen?.credentialRef === undefined) return
+    const state = this.managed.get(id)
+    if (state?.mode !== 'manual') {
+      for (const slot of this.slotsOf(id)) {
+        const reading = this.accounts.get(accountKey(slot))
+        if ((state !== undefined || reading !== undefined)
+          && (reading === undefined || Date.now() - reading.fetchedAt > this.config.routing.maxAgeMs
+            || reading.planWindows?.some(window => window.resetAt !== undefined && Date.parse(window.resetAt) <= Date.now()))) {
+          await this.readAccount(slot)
+        }
+      }
+    }
+    let chosen = state?.mode === 'manual'
+      ? this.slotsOf(id).find(slot => slot.credentialRef === state.selectedRef)
+      : this.healthiestSlot(id)
+    this.decisions.set(id, state?.mode === 'manual' ? 'manual' : 'quota')
+    if (state?.mode === 'jev') {
+      const candidates = this.routeCandidates(id)
+      const key = state.jevRef === undefined ? undefined : await this.resolveApiKey(state.jevRef)
+      const ref = key === undefined ? undefined : await chooseWithJev(candidates, key, this.config.routing)
+      if (ref !== undefined) chosen = { id, credentialRef: ref }
+      this.decisions.set(id, ref === undefined ? 'jev-fallback' : 'jev')
+    }
+    if (chosen?.credentialRef === undefined) {
+      if (state !== undefined && state.mode !== 'manual') throw new Error(`quota monitor: no healthy key available for ${id}`)
+      return
+    }
     // A request whose credential value already is the chosen key's is not
     // rewritten: the write is durable and the read is what the route does next.
     const value = await this.resolveApiKey(chosen.credentialRef)
@@ -517,25 +668,26 @@ export class QuotaMonitorService extends TypertRemoteService {
    * @param id - provider route key.
    * @returns the chosen credential's slot, or undefined when none states a figure.
    */
-  private healthiestSlot(id: string): QuotaAccountSlot | undefined {
-    const slots = this.slotsOf(id)
-    let scale = 0
-    for (const slot of slots) {
-      if (slot.credentialRef === undefined) continue
+  private routeCandidates(id: string): Array<{ ref: string; headroom: number; resetAt?: string }> {
+    const readings = this.slotsOf(id).flatMap(slot => {
       const account = this.accounts.get(accountKey(slot))
-      if (account?.status !== 'ok' || account.remaining === undefined) continue
-      if (account.used === undefined) scale = Math.max(scale, account.remaining)
-    }
-    let best: { slot: QuotaAccountSlot; headroom: number } | undefined
-    for (const slot of slots) {
-      if (slot.credentialRef === undefined) continue
-      const account = this.accounts.get(accountKey(slot))
-      if (account?.status !== 'ok') continue
+      if (slot.credentialRef === undefined || account?.status !== 'ok'
+        || Date.now() - account.fetchedAt > this.config.routing.maxAgeMs
+        || (this.cooldowns.get(accountKey(slot)) ?? 0) > Date.now()) return []
+      return [{ ref: slot.credentialRef, account }]
+    })
+    const scale = Math.max(0, ...readings.map(item => item.account.remaining ?? 0))
+    return readings.flatMap(({ ref, account }) => {
       const headroom = headroomOf(account, scale)
-      if (headroom === undefined) continue
-      if (best === undefined || headroom > best.headroom) best = { slot, headroom }
-    }
-    return best?.slot
+      if (headroom === undefined || headroom <= 0 || !Number.isFinite(headroom)) return []
+      const resetAt = account.planWindows?.map(window => window.resetAt).filter((value): value is string => value !== undefined).sort()[0]
+      return [{ ref, headroom, ...resetAt === undefined ? {} : { resetAt } }]
+    }).sort((a, b) => b.headroom - a.headroom)
+  }
+
+  private healthiestSlot(id: string): QuotaAccountSlot | undefined {
+    const ref = this.routeCandidates(id)[0]?.ref
+    return ref === undefined ? undefined : { id, credentialRef: ref }
   }
 
   /**
@@ -575,8 +727,12 @@ export class QuotaMonitorService extends TypertRemoteService {
    * @returns the slot, defaulting to the route's first monitored credential.
    */
   private slotFor(request: QuotaAccountRequest): QuotaAccountSlot {
-    if (request.credentialRef === undefined) return this.slotsOf(request.provider)[0] ?? { id: request.provider }
-    return { id: request.provider, credentialRef: request.credentialRef }
+    this.refresh()
+    if (!this.names.has(request.provider)) throw new Error('Provider is not currently registered')
+    const slots = this.slotsOf(request.provider)
+    const slot = request.credentialRef === undefined ? slots[0] : slots.find(item => item.credentialRef === request.credentialRef)
+    if (slot === undefined) throw new Error('Key is not monitored by this provider')
+    return slot
   }
 
   /**
@@ -665,6 +821,7 @@ export class QuotaMonitorService extends TypertRemoteService {
       mode,
       adapter: adapter.id,
       status: 'ok',
+      ...reading.accountName === undefined ? {} : { accountName: reading.accountName },
       ...reading.remaining === undefined ? {} : { remaining: reading.remaining },
       ...reading.used === undefined ? {} : { used: reading.used },
       ...reading.limit === undefined ? {} : { limit: reading.limit },
@@ -768,14 +925,15 @@ export class QuotaMonitorService extends TypertRemoteService {
   ): AsyncIterable<StreamChunk> {
     const id = options.provider || 'unknown'
     const bucket = this.bucketFor(id, this.names.get(id) ?? id)
-    const route = this.routers.has(id) ? this.routeCredential(id) : undefined
-    const recordUsage = (chunk: StreamChunk): void => {
-      if (chunk.type === 'usage') this.addUsage(bucket, chunk.usage)
-    }
+    const service = this
     return (async function* () {
-      if (route !== undefined) await route
-      let counted = false
+      const unlock = service.routers.has(id) ? await service.lockRoute(id) : () => {}
+      let servingRef: string | undefined
       try {
+        if (options.signal?.aborted) throw options.signal.reason
+        if (service.routers.has(id)) await service.routeCredential(id)
+        servingRef = service.routers.get(id)?.credentialRef
+        let counted = false
         for await (const chunk of next()) {
           if (!counted) {
             counted = true
@@ -783,13 +941,16 @@ export class QuotaMonitorService extends TypertRemoteService {
             bucket.lastCallAt = Date.now()
             bucket.lastModel = options.model
           }
-          recordUsage(chunk)
+          if (chunk.type === 'usage') service.addUsage(bucket, chunk.usage)
           yield chunk
         }
       } catch (error) {
         bucket.errorCount += 1
+        if (servingRef !== undefined && !options.signal?.aborted) {
+          service.cooldowns.set(accountKey({ id, credentialRef: servingRef }), Date.now() + service.config.routing.cooldownMs)
+        }
         throw error
-      }
+      } finally { unlock() }
     })()
   }
 
@@ -829,13 +990,16 @@ export class QuotaMonitorService extends TypertRemoteService {
     this.usageStore.setPrices(next)
   }
 
-  /** Re-read the provider registry and configurable-provider directory. */
+  /** Reconcile live routes and profiles; historical usage is deliberately retained. */
   private refresh(): void {
     const llm = this.ctx.llm
+    this.names.clear()
+    this.profiles.clear()
     for (const provider of llm.listProviders()) this.noteProvider(provider)
     for (const entry of llm.listConfigurableProviders()) {
       this.profiles.set(entry.provider, entry)
     }
+    if (this.focused !== undefined && !this.names.has(this.focused.id)) this.focused = undefined
   }
 
   private noteProvider(provider: LlmProviderInfo): void {
@@ -936,7 +1100,7 @@ export class QuotaMonitorService extends TypertRemoteService {
   /** The provider selector entries, one per known route. */
   private providerEntries(): QuotaProviderEntry[] {
     const entries: QuotaProviderEntry[] = []
-    for (const [id, bucket] of this.usage) {
+    for (const [id, name] of this.names) {
       const monitor = resolveMonitor(this.config, id)
       const profile = this.profileOf(id)
       const baseURL = trimBaseURL(profile.baseURL) ?? DEFAULT_BASE_URLS[id]
@@ -954,7 +1118,7 @@ export class QuotaMonitorService extends TypertRemoteService {
       }
       entries.push({
         id,
-        name: bucket.name,
+        name,
         // A read that declared its own mode wins: the same gateway serves a
         // wallet or a subscription, and the card frame follows the answer.
         mode: account?.mode ?? (adapter === null ? 'unsupported' : ADAPTER_MODES[adapter]),
@@ -962,7 +1126,17 @@ export class QuotaMonitorService extends TypertRemoteService {
         status: account?.status ?? 'unsupported',
         ...account?.warning === undefined ? {} : { warning: account.warning },
         credentialRefs: slots.flatMap(slot => slot.credentialRef === undefined ? [] : [slot.credentialRef]),
-        ...router?.credentialRef === undefined ? {} : { activeCredentialRef: router.credentialRef },
+        ...(router?.credentialRef !== undefined ? { activeCredentialRef: router.credentialRef }
+          : router === undefined && typeof profile.apiKeyEnv === 'string' && slots.some(slot => slot.credentialRef === profile.apiKeyEnv)
+            ? { activeCredentialRef: profile.apiKeyEnv } : {}),
+        keyNames: this.managed.get(id)?.labels ?? {},
+        routing: {
+          mode: this.managed.get(id)?.mode ?? (router === undefined ? 'manual' : 'quota'),
+          wired: router !== undefined && profile.apiKeyEnv === router.activeRef && !router.refused,
+          ...router === undefined ? {} : { activeRef: router.activeRef },
+          jevConfigured: this.managed.get(id)?.jevRef !== undefined,
+          ...this.decisions.get(id) === undefined ? {} : { lastDecision: this.decisions.get(id)! },
+        },
         accounts,
       })
     }
@@ -971,6 +1145,7 @@ export class QuotaMonitorService extends TypertRemoteService {
 
   /** Assemble the snapshot from the current accounting maps. */
   private snapshot(): QuotaSnapshot {
+    this.refresh()
     const rows: QuotaProviderRow[] = []
     const aggregate = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 }
     for (const [id, bucket] of this.usage) {

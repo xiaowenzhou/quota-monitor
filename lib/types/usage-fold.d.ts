@@ -16,11 +16,12 @@ import type { QuotaTokenTotals, QuotaUsageReport } from './types.ts';
 /**
  * The folded state of one session, cached between rounds.
  *
- * `throughSeq` is the highest raw-log seq already folded; a later round
- * resumes after it. `eventCount` detects a log that was rewritten rather than
- * appended to, which forces a full refold of that session.
+ * Cursor fields describe the last replay; they cannot prove an unchanged
+ * prefix. Every refresh replays the log, including corrections at old seqs.
  */
 export interface SessionFoldState {
+    /** Accounting semantics revision; older records must be rebuilt. */
+    accountingVersion?: 3;
     throughSeq: number;
     eventCount: number;
     /** `YYYY-MM-DD` → `provider\u0000model` → totals, as plain JSON for persistence. */
@@ -51,14 +52,17 @@ export interface QuotaFoldCounts {
  */
 export declare function localDay(epochMs: number): string;
 /**
- * Fold one session's events into a per-day, per-route counter map.
+ * Replay provider-reported usage, excluding the last fork-inherited prefix.
  *
- * Resumes from `previous` when the log only grew; a shorter log, or one whose
- * prefix was rewritten, is refolded from the start because its earlier seqs
- * no longer identify the same events.
- * @param events - the session's raw log events, ascending by seq.
- * @param previous - the fold state from an earlier round, when one exists.
- * @returns the updated fold state.
+ * Request headers identify the billed route; context records supply a fallback
+ * for logs with no header. The latest sample replaces a settlement for the same
+ * turn and step until a retry boundary opens a separate attempt. Reasoning is
+ * already part of output and is never added again.
+ *
+ * Full replay also detects same-length rewrites and corrections across refreshes.
+ * @param events - the complete raw session log, ascending by seq.
+ * @param previous - cached result; replay deliberately does not trust its cursor.
+ * @returns the corrected per-day and per-route counters.
  */
 export declare function foldSessionEvents(events: readonly SessionEvent[], previous: SessionFoldState | undefined): SessionFoldState;
 /**

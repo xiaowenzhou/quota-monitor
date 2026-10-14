@@ -213,8 +213,7 @@ describe('a route monitored through several keys', () => {
     const calls = stubFetch()
     const ctx = await start(monitoringBothKeys())
     try {
-      const account = await ctx.quotaMonitor.getAccount({ provider: ROUTE, credentialRef: KEY_UNLISTED })
-      expect(account).toMatchObject({ credentialRef: KEY_UNLISTED, status: 'not-configured' })
+      await expect(ctx.quotaMonitor.getAccount({ provider: ROUTE, credentialRef: KEY_UNLISTED })).rejects.toThrow('Key is not monitored by this provider')
       expect(calls).toEqual([])
     }
     finally {

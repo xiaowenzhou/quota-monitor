@@ -107,6 +107,9 @@ export interface QuotaAccount {
    * this boundary.
    */
   readonly credentialRef?: string
+  /** User label and provider-disclosed identity, never a secret. */
+  keyName?: string
+  accountName?: string
   /** Epoch ms of the reading. */
   fetchedAt: number
   /**
@@ -219,6 +222,21 @@ export interface QuotaProviderEntry {
    * every monitored credential before the first answer arrives.
    */
   accounts: readonly QuotaAccount[]
+  keyNames?: Readonly<Record<string, string>>
+  routing?: { mode: QuotaRoutingMode; wired: boolean; activeRef?: string; jevConfigured: boolean; lastDecision?: string }
+}
+
+export type QuotaRoutingMode = 'manual' | 'quota' | 'jev'
+
+/** Secret fields are write-only and are never returned in snapshots. */
+export interface QuotaKeyRequest {
+  provider: string
+  action: 'add' | 'rename' | 'remove' | 'activate' | 'routing'
+  credentialRef?: string
+  name?: string
+  key?: string
+  mode?: QuotaRoutingMode
+  jevKey?: string
 }
 
 /** Four disjoint token buckets. Reasoning tokens are already inside `outputTokens`. */

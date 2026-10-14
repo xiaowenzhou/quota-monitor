@@ -10,10 +10,13 @@
  */
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots';
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol';
-import type { QuotaAccount, QuotaAccountRequest, QuotaExportDocument, QuotaExportRequest, QuotaResetStatsRequest, QuotaSetBalancesRequest, QuotaSnapshot, QuotaUsageReport, QuotaUsageRequest } from '../types.ts';
+import type { QuotaAccount, QuotaAccountRequest, QuotaKeyRequest, QuotaExportDocument, QuotaExportRequest, QuotaResetStatsRequest, QuotaSetBalancesRequest, QuotaSnapshot, QuotaUsageReport, QuotaUsageRequest } from '../types.ts';
 /** The mounted `ctx.remote.quotaMonitor` face the panel talks to. */
 export interface QuotaMonitorApi {
     getSnapshot(): Promise<RemoteResult<QuotaSnapshot>>;
+    manageKey(request: QuotaKeyRequest): Promise<RemoteResult<QuotaSnapshot>>;
+    readPendingAccounts(): Promise<RemoteResult<QuotaSnapshot>>;
+    refreshAccounts(): Promise<RemoteResult<QuotaSnapshot>>;
     getAccount(request: QuotaAccountRequest): Promise<RemoteResult<QuotaAccount>>;
     getUsage(request: QuotaUsageRequest): Promise<RemoteResult<QuotaUsageReport>>;
     exportUsage(request: QuotaExportRequest): Promise<RemoteResult<QuotaExportDocument>>;
@@ -23,10 +26,12 @@ export interface QuotaMonitorApi {
 /** Owner share handed down by the main-panel entry. */
 export interface UsagePanelInjected {
     quota: QuotaMonitorApi;
+    /** The Host's model registry is the current provider directory. */
+    subscribeProviders?: (listener: () => void) => () => void;
 }
 /** Composed props of the panel entry: root runtime seat, `t`, and the Host face. */
 export type UsagePanelProps = PropsRuntime<'main'> & PropsLocale<'quotaMonitor'> & InjectFace<UsagePanelInjected>;
 /** The panel's namespace-bound translate, threaded into its rows. */
 export type QuotaTranslate = TranslateNS<'quotaMonitor'>;
-export declare function UsagePanel({ t, quota }: UsagePanelProps): import("react").JSX.Element;
+export declare function UsagePanel({ t, quota, subscribeProviders }: UsagePanelProps): import("react").JSX.Element;
 //# sourceMappingURL=UsagePanel.d.ts.map

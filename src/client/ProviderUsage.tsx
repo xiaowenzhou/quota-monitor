@@ -131,7 +131,9 @@ function ProviderRow({ t, row, names, scope, denominator, selected, onSelect }: 
   >
     <span className={css.providerHead}>
       <span className={css.providerName}>{name ?? row.provider}</span>
-      {name === undefined ? null : <span className={css.providerId}>{row.provider}</span>}
+      {name === undefined
+        ? <span className={css.providerId}>{t('provider.archived')}</span>
+        : <span className={css.providerId}>{row.provider}</span>}
       <span className={css.providerTokens}>{fmtTokens(figures.tokens)}</span>
     </span>
     <span className={css.bar}>

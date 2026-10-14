@@ -64,18 +64,21 @@ export class StubStorageDomain extends Service {
     super(ctx, 'storageDomain')
   }
 
-  async open(): Promise<{ table(): unknown; close(): Promise<void> }> {
+  readonly keyRecords = new Map<string, unknown>()
+
+  async open(spec?: { name: string }): Promise<{ table(): unknown; close(): Promise<void> }> {
     const { state } = this
+    const records = spec?.name === 'quota_keys' ? this.keyRecords : state.records
     const failing = () => this.failWrites
     const table = {
-      entries: () => state.records.entries(),
-      get: (key: string) => state.records.get(key),
+      entries: () => records.entries(),
+      get: (key: string) => records.get(key),
       async put(key: string, value: unknown) {
         if (failing()) throw new Error('stub: storage is read-only')
-        state.records.set(key, value)
+        records.set(key, value)
       },
       async delete(key: string) {
-        state.records.delete(key)
+        records.delete(key)
       },
     }
     return {

@@ -79,6 +79,15 @@ export interface QuotaAccount {
     status: QuotaAccountStatus;
     /** The adapter that produced the reading, for the card's origin line. */
     adapter: string;
+    /**
+     * Credential reference this reading was taken with, when the route was read
+     * through a named credential. Names only — a credential value never crosses
+     * this boundary.
+     */
+    readonly credentialRef?: string;
+    /** User label and provider-disclosed identity, never a secret. */
+    keyName?: string;
+    accountName?: string;
     /** Epoch ms of the reading. */
     fetchedAt: number;
     /**
@@ -161,13 +170,52 @@ export interface QuotaBalanceEstimate {
 export interface QuotaProviderEntry {
     readonly id: string;
     name: string;
+    /** Mode of {@link accounts}[0], the route's first monitored credential. */
     mode: QuotaAccountMode;
     /** The adapter that would serve this provider's account read. */
     adapter: string;
-    /** Latest known status, so the selector can mark a failing provider. */
+    /** Latest known status of {@link accounts}[0]. */
     status: QuotaAccountStatus;
-    /** Latest known severity, so the selector can mark a draining account. */
+    /** Latest known severity of {@link accounts}[0], so the selector can mark a draining account. */
     warning?: QuotaWarningLevel;
+    /**
+     * Credential references this route's account is read with, in configuration
+     * order. Empty means the route has one slot read with whatever credential its
+     * own profile (or `monitors.<id>.credentialRef`) names, which may be none.
+     */
+    credentialRefs: readonly string[];
+    /**
+     * The monitored credential whose value the route currently authenticates
+     * with, when this monitor routes among them and the route's credential is one
+     * of them. Absent while no request has run since load, or when the route's
+     * credential is none of the monitored keys.
+     */
+    activeCredentialRef?: string;
+    /**
+     * Readings of {@link credentialRefs}, one per credential read so far and in
+     * the same order. A route not yet read carries none, so a selector can draw
+     * every monitored credential before the first answer arrives.
+     */
+    accounts: readonly QuotaAccount[];
+    keyNames?: Readonly<Record<string, string>>;
+    routing?: {
+        mode: QuotaRoutingMode;
+        wired: boolean;
+        activeRef?: string;
+        jevConfigured: boolean;
+        lastDecision?: string;
+    };
+}
+export type QuotaRoutingMode = 'manual' | 'quota' | 'jev';
+/** Secret fields are write-only and are never returned in snapshots. */
+export interface QuotaKeyRequest {
+    provider: string;
+    action: 'add' | 'rename' | 'remove' | 'activate' | 'routing';
+    credentialRef?: string;
+    name?: string;
+    key?: string;
+    mode?: QuotaRoutingMode;
+    jevKey?: string;
 }
 /** Four disjoint token buckets. Reasoning tokens are already inside `outputTokens`. */
 export interface QuotaTokenTotals {
@@ -202,6 +250,29 @@ export interface QuotaModelUsage extends QuotaTokenTotals {
     calls: number;
     /** Derived spend, absent while no price rule is configured. */
     cost?: QuotaCostView;
+}
+/** One concrete model's counters and estimated spend within a calendar scope. */
+export interface QuotaModelScope extends QuotaTokenTotals {
+    calls: number;
+    cost?: QuotaCostView;
+    cacheHitPercent?: number;
+}
+/** A provider and concrete model, with historical spend and today's effective rate. */
+export interface QuotaModelSummary {
+    readonly provider: string;
+    readonly model: string;
+    all: QuotaModelScope;
+    today: QuotaModelScope;
+    month: QuotaModelScope;
+    /** Current per-million rates; historical costs retain their own dated rules. */
+    rate?: {
+        currency: string;
+        inputPerMillion: number;
+        outputPerMillion: number;
+        cacheReadPerMillion?: number;
+        cacheWritePerMillion?: number;
+        from?: string;
+    };
 }
 /** One calendar day of folded usage, in the Host's local time zone. */
 export interface QuotaDayUsage extends QuotaTokenTotals {
@@ -321,6 +392,8 @@ export interface QuotaUsageReport {
      * `cacheRead / (cacheRead + input + cacheWrite)`. Absent with no input.
      */
     todayCacheHitPercent?: number;
+    /** Concrete provider/model pairs, busiest first; optional for older clients. */
+    models?: readonly QuotaModelSummary[];
     /** Every route carrying usage, busiest first. */
     providers: readonly QuotaProviderUsage[];
     /** Days carrying usage, ascending by date. Days with none are omitted. */
@@ -371,6 +444,12 @@ export interface QuotaSnapshot {
 export interface QuotaAccountRequest {
     /** Provider route whose account is read. */
     provider: string;
+    /**
+     * Credential reference of the reading to answer with. Absent reads the
+     * route's first monitored credential — its own key unless
+     * `monitors.<id>.credentialRefs` names other credentials.
+     */
+    credentialRef?: string;
     /** Bypass the cached reading and query the endpoint again. */
     refresh?: boolean;
 }

@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from 'react'
 import type {
+  QuotaKeyRequest,
   QuotaAccount,
   QuotaAccountMode,
   QuotaAccountStatus,
@@ -20,7 +21,8 @@ import type {
 } from '../types.ts'
 import type { QuotaTranslate } from './UsagePanel.tsx'
 import { fmtAmount, fmtNumber, fmtTime, fmtTokens, initialsOf, resetLabel } from './format.ts'
-import { WINDOW_KEYS, chipFigure } from './windows.ts'
+import { WINDOW_KEYS } from './windows.ts'
+import { KeyManager } from './KeyManager.tsx'
 import css from './UsagePanel.module.css'
 
 /** Dictionary key naming each account status. */
@@ -56,6 +58,7 @@ export interface AccountCardProps {
   manualTotal: number | undefined
   manualRemaining: number | undefined
   onSelect: (id: string, credentialRef: string | undefined) => void
+  onManage: (request: QuotaKeyRequest) => Promise<void>
   onRefresh: () => void
   onManualChange: (id: string, value: number) => void
 }
@@ -105,19 +108,6 @@ function slotsOf(entry: QuotaProviderEntry): readonly (string | undefined)[] {
   return entry.credentialRefs.length === 0 ? [undefined] : entry.credentialRefs
 }
 
-/**
- * The reading one chip states: what the last round left in the snapshot, so
- * every chip reports the same round instead of mixing readings.
- * @param entry - the route the chip belongs to.
- * @param credentialRef - the chip's credential reference.
- * @returns the reading, or undefined before anything has read that slot.
- */
-function slotReading(entry: QuotaProviderEntry, credentialRef: string | undefined): QuotaAccount | undefined {
-  return credentialRef === undefined
-    ? entry.accounts[0]
-    : entry.accounts.find(candidate => candidate.credentialRef === credentialRef)
-}
-
 /** The provider selector: one chip per watched credential, with its status dot. */
 function Selector({ t, providers, selected, onSelect }: {
   t: QuotaTranslate
@@ -125,42 +115,15 @@ function Selector({ t, providers, selected, onSelect }: {
   selected: AccountSlot
   onSelect: (id: string, credentialRef: string | undefined) => void
 }) {
-  return <div className={css.selector}>
-    {providers.map(entry => {
-      const slots = slotsOf(entry)
-      // Several keys behind one route state the route once, then one chip per
-      // key, so the reader compares the figures rather than the route names.
-      const grouped = slots.length > 1
-      return <span key={entry.id} className={grouped ? css.selectorGroup : undefined}>
-        {grouped ? <span className={css.selectorGroupName}>{entry.name}</span> : null}
-        {slots.map(credentialRef => {
-          const reading = slotReading(entry, credentialRef)
-          const active = entry.id === selected.id && credentialRef === selected.credentialRef
-          const figure = reading?.unlimited === true ? t('account.unlimited') : chipFigure(reading)
-          return <button
-            key={credentialRef ?? entry.id}
-            type="button"
-            aria-pressed={active}
-            className={`${css.selectorChip} ${active ? css.selectorChipActive : ''}`}
-            onClick={() =>{  onSelect(entry.id, credentialRef) }}
-          >
-            <span
-              className={`${css.dot} ${dotOf(reading?.status ?? entry.status, reading?.warning ?? entry.warning)}`}
-              aria-hidden="true"
-            />
-            <span className={css.selectorName}>{grouped ? credentialRef ?? entry.name : entry.name}</span>
-            {/* Only a route whose keys would otherwise look alike states the
-                figure here; a single key states it in the card below. */}
-            {grouped && figure !== undefined ? <span className={css.selectorFigure}>{figure}</span> : null}
-            {/* Which key a route that routes its credentials is serving with
-                now, so the reader knows which chip the next call spends. */}
-            {grouped && credentialRef !== undefined && credentialRef === entry.activeCredentialRef
-              ? <span className={css.liveDot} aria-hidden="true" />
-              : null}
-          </button>
-        })}
-      </span>
-    })}
+  return <div className={css.selector} aria-label={t('account.provider')}>
+    {providers.map(entry => <button key={entry.id} type="button"
+      aria-label={entry.name} aria-pressed={entry.id === selected.id}
+      className={`${css.selectorChip} ${entry.id === selected.id ? css.selectorChipActive : ''}`}
+      onClick={() => onSelect(entry.id, entry.activeCredentialRef || entry.credentialRefs[0])}>
+      <span className={`${css.dot} ${dotOf(entry.status, entry.warning)}`} aria-hidden="true" />
+      <span className={css.selectorName}>{entry.name}</span>
+      <span className={css.selectorFigure}>{entry.credentialRefs.length || 1}</span>
+    </button>)}
   </div>
 }
 
@@ -354,7 +317,7 @@ function Figures({ t, account, tone }: {
 
 export function AccountCard({
   t, providers, selected, selectedCredential, account, manualTotal, manualRemaining,
-  onSelect, onRefresh, onManualChange,
+  onSelect, onManage, onRefresh, onManualChange,
 }: AccountCardProps) {
   const tone = toneOf(account?.warning)
   const windows = account?.planWindows ?? []
@@ -376,7 +339,10 @@ export function AccountCard({
       <button type="button" className={css.action} onClick={onRefresh}>{t('action.refresh')}</button>
     </div>
 
+    {entry === undefined ? null : <KeyManager key={entry.id} t={t} entry={entry} selected={slot.credentialRef}
+      onSelect={ref => onSelect(entry.id, ref)} onManage={onManage} />}
     <Identity t={t} name={name} credential={credential} account={account} />
+    {account?.accountName ? <p className={css.cardMeta}>{account.accountName}</p> : null}
 
     {account === undefined ? null : account.status === 'ok'
       ? <>

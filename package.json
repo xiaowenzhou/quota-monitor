@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-extension-quota-monitor",
   "description": "Quota monitor: provider account balances and plan windows, folded session token usage, and the usage panel for the DeepSeek Harness web surface",
-  "version": "0.1.6-alpha.1",
+  "version": "0.1.7-alpha.2",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -48,6 +48,8 @@
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",
+    "MULTI_KEY.md",
+    "MULTI_KEY.zh.md",
     "LICENSE"
   ],
   "dsh": {

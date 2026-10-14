@@ -35,4 +35,15 @@ export declare function accountTone(account: QuotaAccount): QuotaWarningLevel;
  * @returns true when it states a window or a balance.
  */
 export declare function hasFigure(account: QuotaAccount): boolean;
+/**
+ * The figure a selector chip states for one reading.
+ *
+ * A balance states what is left, which is the number that ranks keys against
+ * each other. A plan states the spent share of its tightest window, because
+ * that is the one that runs out first. A reading that could not be read, or
+ * that carries no figure at all, states nothing and leaves its dot to say why.
+ * @param account - the reading to summarize.
+ * @returns the compact figure, or undefined when the reading carries none.
+ */
+export declare function chipFigure(account: QuotaAccount | undefined): string | undefined;
 //# sourceMappingURL=windows.d.ts.map

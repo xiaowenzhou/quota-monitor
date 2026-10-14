@@ -1,0 +1,16 @@
+.manager { border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; padding: 12px; min-width: 0; display: grid; gap: 12px; color: var(--dsw-alias-label-primary); }
+.manager legend { font-size: 12px; font-weight: 600; padding: 0 6px; }
+.hint { margin: 0; font-size: 12px; line-height: 1.6; color: var(--dsw-alias-label-tertiary); }
+.list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 8px; }
+.row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; padding: 10px; min-width: 0; }
+.selected { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-bg-layer-2); }
+.view { border: 0; background: transparent; text-align: left; cursor: pointer; display: grid; gap: 4px; flex: 1; min-width: 0; color: inherit; font: inherit; }
+.view small { font-size: 11px; color: var(--dsw-alias-label-tertiary); overflow-wrap: anywhere; }
+.form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.form input, .form select { min-width: 0; max-width: 100%; padding: 7px 9px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: inherit; font: inherit; font-size: 12px; }
+.form input { flex: 1 1 160px; }
+.button { border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; padding: 7px 10px; background: var(--dsw-alias-bg-layer-1); color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.button:disabled { opacity: .5; cursor: default; }
+.manager summary { cursor: pointer; font-size: 12px; margin-bottom: 10px; }
+.manager button:focus-visible, .manager summary:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+.error { color: var(--dsw-alias-state-error-primary); font-size: 12px; margin: 0; }

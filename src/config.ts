@@ -181,6 +181,14 @@ export interface QuotaMonitorEntry {
   declarative?: QuotaDeclarativeSpec
 }
 
+export interface QuotaRoutingConfig {
+  maxAgeMs: number
+  cooldownMs: number
+  jevTimeoutMs: number
+  jevMinConfidence: number
+  jevModel: string
+}
+
 /** The plugin's validated configuration. */
 export interface QuotaMonitorConfig {
   /** How often accounts and usage are re-read without an operator asking. */
@@ -193,6 +201,7 @@ export interface QuotaMonitorConfig {
   pricing: QuotaPricingConfig
   /** Spend ceilings measured against those derived amounts. */
   budgets: QuotaBudgetConfig
+  routing: QuotaRoutingConfig
   /** Provider route key → monitor override. */
   monitors: Record<string, QuotaMonitorEntry>
 }
@@ -209,6 +218,7 @@ export interface QuotaMonitorConfigInput {
   detection?: Partial<QuotaDetectionConfig>
   pricing?: Partial<QuotaPricingConfig>
   budgets?: Partial<QuotaBudgetConfig>
+  routing?: Partial<QuotaRoutingConfig>
   monitors?: Record<string, QuotaMonitorEntry>
 }
 
@@ -225,6 +235,7 @@ const adapterId = zs.union([
   zs.const('agent-router'),
   zs.const('stepcode'),
   zs.const('general'),
+  zs.const('command-code'),
   zs.const('opencode-go'),
   zs.const('zai-token-plan'),
   zs.const('kimi-token-plan'),
@@ -340,6 +351,13 @@ export const Config: zs<QuotaMonitorConfigInput, QuotaMonitorConfig> = zs.object
     monthly: zs.number().min(0),
     warningPercent: zs.number().min(0).max(100).default(80),
     criticalPercent: zs.number().min(0).default(100),
+  }),
+  routing: zs.object({
+    maxAgeMs: zs.natural().min(10_000).max(MAX_INTERVAL_MS).default(300_000),
+    cooldownMs: zs.natural().min(1_000).max(MAX_INTERVAL_MS).default(60_000),
+    jevTimeoutMs: zs.natural().min(100).max(30_000).default(3_000),
+    jevMinConfidence: zs.number().min(0).max(1).default(0.6),
+    jevModel: zs.string().default('typesafe/jev-1.13'),
   }),
   monitors: zs.dict(monitorEntry),
 })

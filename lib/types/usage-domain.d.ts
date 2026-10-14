@@ -11,16 +11,17 @@ import { z } from 'zod';
 import type { SessionId } from '@deepseek-ai/dsh-session';
 import type { SessionFoldState } from './usage-fold.ts';
 /**
- * One session's fold record: the resume cursor plus its day map.
+ * One session's fold record: replay metadata plus its day map.
  *
- * `eventCount` pairs with `throughSeq` to detect a rewritten log: a shorter
- * log cannot be resumed from a seq its events no longer carry.
+ * `accountingVersion` distinguishes corrected request/attempt/fork accounting
+ * from earlier caches. Cursor fields are metadata, not a prefix fingerprint.
  *
  * `lastActiveAt` is the epoch ms of the latest usage-bearing event folded. It
  * is optional because version 1 records predate it; such a record keeps its
  * counters and reports no activity time until its session is next folded.
  */
 export declare const foldRecord: z.ZodObject<{
+    accountingVersion: z.ZodOptional<z.ZodLiteral<3>>;
     throughSeq: z.ZodNumber;
     eventCount: z.ZodNumber;
     days: z.ZodRecord<z.ZodString, z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -41,9 +42,9 @@ export type QuotaFoldRecord = z.infer<typeof foldRecord>;
  * disposable derived data, so it must never cost the boot — the domain layer
  * moves it aside and the session is refolded from its log.
  *
- * Version 2 added `lastActiveAt`. Version 1 records validate unchanged against
- * the current schema, so they are accepted rather than discarded: a refold is
- * cheap but re-reading every session's whole log at once is not.
+ * Domain version 2 added `lastActiveAt`. The optional accounting revision
+ * preserves backend compatibility; the store seeds only revision 3 counters
+ * and reconstructs older records from the authoritative session logs.
  */
 export declare const usageDomainSpec: {
     name: string;
@@ -62,6 +63,7 @@ export declare const usageDomainSpec: {
                 cacheReadTokens: number;
                 cacheWriteTokens: number;
             }>>;
+            accountingVersion?: 3 | undefined;
             lastActiveAt?: number | undefined;
         }>;
     };

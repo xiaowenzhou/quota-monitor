@@ -352,7 +352,8 @@ export const opencodeGo: QuotaAdapter = {
     if (windows.length === 0) {
       throw new QuotaRequestError('invalid-response', 'OpenCode Go usage response has no usable windows')
     }
-    return { plan: 'Go', planWindows: Object.freeze(windows) }
+    const accountName = pickString(body, ['name', 'email']) ?? pickString(isRecord(body) ? body['user'] : undefined, ['name', 'email', 'id'])
+    return { plan: pickString(body, ['plan']) ?? (context.baseURL?.includes('/zen/v1') ? 'Zen' : 'Go'), planWindows: Object.freeze(windows), ...accountName ? { accountName } : {} }
   },
 }
 
@@ -418,7 +419,8 @@ export const clinePlan: QuotaAdapter = {
       throw new QuotaRequestError('invalid-response', 'Cline Pass response has no recognized plan window')
     }
     windows.sort((left, right) => right.percentUsed - left.percentUsed)
-    return { plan: 'Cline Pass', planWindows: Object.freeze(windows) }
+    const accountName = pickString(body, ['name', 'email']) ?? pickString(isRecord(body) ? body['user'] : undefined, ['name', 'email', 'id'])
+    return { plan: 'Cline Pass', planWindows: Object.freeze(windows), ...accountName ? { accountName } : {} }
   },
 }
 

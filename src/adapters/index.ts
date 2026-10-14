@@ -8,6 +8,7 @@
 
 import type { QuotaAdapterId } from '../identity.ts'
 import { BALANCE_ADAPTERS } from './balance.ts'
+import { commandCode } from './command.ts'
 import { SUBSCRIPTION_ADAPTERS } from './subscription.ts'
 import type { QuotaAdapter } from './contract.ts'
 
@@ -17,7 +18,7 @@ export type { QuotaDeclarativeSpec, QuotaDeclarativeWindow } from './declarative
 
 /** Every shared adapter, keyed by id. */
 const REGISTRY: ReadonlyMap<QuotaAdapterId, QuotaAdapter> = new Map(
-  [...BALANCE_ADAPTERS, ...SUBSCRIPTION_ADAPTERS].map(adapter => [adapter.id, adapter]),
+  [...BALANCE_ADAPTERS, ...SUBSCRIPTION_ADAPTERS, commandCode].map(adapter => [adapter.id, adapter]),
 )
 
 /**

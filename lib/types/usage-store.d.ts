@@ -2,9 +2,9 @@
  * The usage store: folds every readable session log into the report the panel
  * reads, and keeps the per-session fold cached durably.
  *
- * One fold round at a time. A session is re-read only when its log grew, so a
- * steady-state round costs one listing plus the sessions that actually
- * changed. Failures are per session: an unreadable log leaves its cached
+ * One fold round at a time. Each readable log is replayed so equal-length
+ * corrections and later settlement replacements remain visible. Unchanged
+ * counter records avoid redundant persistence. Failures are per session: an unreadable log leaves its cached
  * record intact and the round continues, because one damaged session must not
  * blank the whole report.
  * @module @deepseek-ai/dsh-extension-quota-monitor/usage-store

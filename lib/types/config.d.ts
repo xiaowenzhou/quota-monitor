@@ -14,6 +14,16 @@ import zs from '@deepseek-ai/schemastery';
 import type { QuotaAdapterId } from './identity.ts';
 import type { QuotaDeclarativeSpec } from './adapters/declarative.ts';
 import type { QuotaPriceRule } from './pricing.ts';
+/**
+ * The credential-reference grammar this plugin accepts in configuration.
+ *
+ * The credentials seam owns the name space, but its own validator is not
+ * imported here: a plugin may be installed twice in one process, and a marker
+ * that only one installation's module registry can reproduce would then reject
+ * valid names. The grammar is fixed, so this copy is the configuration's own
+ * acceptance rule and a name it rejects never reaches the seam.
+ */
+export declare const CREDENTIAL_REF_PATTERN: RegExp;
 /** How often accounts and usage are re-read. */
 export interface QuotaRefreshConfig {
     /**
@@ -109,6 +119,27 @@ export interface QuotaMonitorEntry {
     /** Credential reference the adapter reads, when it differs from the provider key. */
     credentialRef?: string;
     /**
+     * Credential references this route's account is read with, one reading each.
+     *
+     * Naming several is how one provider route is monitored key by key: the
+     * endpoint returns what that key itself has left, so a deployment that spreads
+     * traffic across keys sees each key's own figure. Non-empty replaces
+     * {@link credentialRef} and the provider's own key entirely; empty or absent
+     * leaves the route read once with its own credential.
+     */
+    credentialRefs?: string[];
+    /**
+     * Credential reference this monitor keeps pointed at the healthiest monitored
+     * credential, so each model request authenticates with that key.
+     *
+     * The route's own profile has to name this reference as its `apiKeyEnv`: the
+     * monitor writes the chosen key's value there and never writes a monitored
+     * credential, so the keys themselves stay as the deployment stored them.
+     * Requires at least two {@link credentialRefs} entries and must not be one of
+     * them. Absent, every monitored credential stays read-only.
+     */
+    activeRef?: string;
+    /**
      * Whether this route's account endpoint may be reached over plaintext `http:`
      * although its host is not on this machine.
      *
@@ -133,6 +164,13 @@ export interface QuotaMonitorEntry {
     /** A configuration-described account read, for a gateway no adapter recognizes. */
     declarative?: QuotaDeclarativeSpec;
 }
+export interface QuotaRoutingConfig {
+    maxAgeMs: number;
+    cooldownMs: number;
+    jevTimeoutMs: number;
+    jevMinConfidence: number;
+    jevModel: string;
+}
 /** The plugin's validated configuration. */
 export interface QuotaMonitorConfig {
     /** How often accounts and usage are re-read without an operator asking. */
@@ -145,6 +183,7 @@ export interface QuotaMonitorConfig {
     pricing: QuotaPricingConfig;
     /** Spend ceilings measured against those derived amounts. */
     budgets: QuotaBudgetConfig;
+    routing: QuotaRoutingConfig;
     /** Provider route key → monitor override. */
     monitors: Record<string, QuotaMonitorEntry>;
 }
@@ -160,6 +199,7 @@ export interface QuotaMonitorConfigInput {
     detection?: Partial<QuotaDetectionConfig>;
     pricing?: Partial<QuotaPricingConfig>;
     budgets?: Partial<QuotaBudgetConfig>;
+    routing?: Partial<QuotaRoutingConfig>;
     monitors?: Record<string, QuotaMonitorEntry>;
 }
 /**
@@ -179,8 +219,18 @@ export declare const Config: zs<QuotaMonitorConfigInput, QuotaMonitorConfig>;
  * it — neither an inline rule nor an imported document — could only ever report
  * `unknown`; that is a configuration mistake rather than a state worth
  * rendering, and it fails here at load.
+ *
+ * A monitored credential list has to name readable credentials: a name outside
+ * the reference grammar could never resolve, and a repeat would draw the same
+ * reading twice while hiding that the deployment expected another key.
+ *
+ * Routing writes the chosen key's value into one reference, so that reference
+ * must not be a monitored key — that would destroy the key it was chosen from —
+ * and there is nothing to choose between below two monitored keys.
  * @param config - the validated plugin config.
- * @throws {Error} when a budget is configured with no price behind it.
+ * @throws {Error} when a budget is configured with no price behind it, a
+ * monitored credential list carries an invalid or repeated reference, or a
+ * routing reference is unusable.
  */
 export declare function assertConsistent(config: QuotaMonitorConfig): void;
 /**

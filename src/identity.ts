@@ -28,6 +28,7 @@ export type QuotaAdapterId =
   | 'agent-router'
   | 'stepcode'
   | 'general'
+  | 'command-code'
   | 'opencode-go'
   | 'zai-token-plan'
   | 'kimi-token-plan'
@@ -57,6 +58,7 @@ export const ADAPTER_MODES: Readonly<Record<QuotaAdapterId, QuotaAccountMode>> =
   'agent-router': 'balance',
   'stepcode': 'balance',
   'general': 'balance',
+  'command-code': 'subscription',
   'opencode-go': 'subscription',
   'zai-token-plan': 'subscription',
   'kimi-token-plan': 'subscription',
@@ -86,7 +88,14 @@ const CANONICAL_ROUTES: Readonly<Record<string, QuotaAdapterId>> = Object.freeze
   'zai-coding-cn': 'zai-token-plan',
   'glm': 'zai-balance',
   'bigmodel': 'zai-balance',
+  'command-code': 'command-code',
+  'commandcode': 'command-code',
+  'command': 'command-code',
+  'command-goat': 'command-code',
+  'opencode': 'opencode-go',
+  'opencode-zen': 'opencode-go',
   'opencode-go': 'opencode-go',
+  'cline-pass': 'cline-plan',
   'minimax': 'minimax-token-plan',
   'minimaxi': 'minimax-token-plan',
   'minimax-cn': 'minimax-token-plan',
@@ -130,6 +139,7 @@ const HOST_RULES: readonly HostRule[] = Object.freeze([
   { adapter: 'agent-router', matches: hostname => /(^|\.)agentrouter\./.test(hostname) },
   { adapter: 'stepcode', matches: domain('air-outer.com') },
   { adapter: 'sub2api', matches: domain('passionapi.com') },
+  { adapter: 'command-code', matches: domain('commandcode.ai') },
   { adapter: 'opencode-go', matches: domain('opencode.ai') },
   { adapter: 'ollama', matches: domain('ollama.com') },
 ])

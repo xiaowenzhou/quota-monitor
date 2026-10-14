@@ -74,7 +74,10 @@ export async function apply(ctx: ClientContext): Promise<void> {
       name: 'main',
       key: PANEL_ID,
       locale: NS,
-      inject: (): UsagePanelInjected => ({ quota: scope.remote.quotaMonitor }),
+      inject: (): UsagePanelInjected => ({
+        quota: scope.remote.quotaMonitor,
+        subscribeProviders: listener => scope.remote.$on('llm/adapters-updated', listener),
+      }),
     }, UsagePanel))
 
     // The composer's own seat, so the selected model's allowance sits beside the

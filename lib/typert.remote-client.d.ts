@@ -3,7 +3,7 @@ import type {
   RemoteResult,
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { QuotaAccount, QuotaAccountRequest, QuotaExportDocument, QuotaExportRequest, QuotaResetStatsRequest, QuotaSetBalancesRequest, QuotaSnapshot, QuotaUsageReport, QuotaUsageRequest } from '@deepseek-ai/dsh-extension-quota-monitor/types'
+import type { QuotaAccount, QuotaAccountRequest, QuotaExportDocument, QuotaExportRequest, QuotaKeyRequest, QuotaResetStatsRequest, QuotaSetBalancesRequest, QuotaSnapshot, QuotaUsageReport, QuotaUsageRequest } from '@deepseek-ai/dsh-extension-quota-monitor/types'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$71756f74614d6f6e69746f72 {
@@ -11,6 +11,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     getAccount: (request: QuotaAccountRequest) => Promise<RemoteResult<QuotaAccount>>
     getSnapshot: () => Promise<RemoteResult<QuotaSnapshot>>
     getUsage: (request: QuotaUsageRequest) => Promise<RemoteResult<QuotaUsageReport>>
+    manageKey: (request: QuotaKeyRequest) => Promise<RemoteResult<QuotaSnapshot>>
+    readPendingAccounts: () => Promise<RemoteResult<QuotaSnapshot>>
+    refreshAccounts: () => Promise<RemoteResult<QuotaSnapshot>>
     resetStats: (request: QuotaResetStatsRequest) => Promise<RemoteResult<QuotaSnapshot>>
     setBalances: (request: QuotaSetBalancesRequest) => Promise<RemoteResult<Record<string, number>>>
   }
@@ -19,6 +22,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'quotaMonitor/getAccount': (request: QuotaAccountRequest) => Promise<RemoteResult<QuotaAccount>>
     'quotaMonitor/getSnapshot': () => Promise<RemoteResult<QuotaSnapshot>>
     'quotaMonitor/getUsage': (request: QuotaUsageRequest) => Promise<RemoteResult<QuotaUsageReport>>
+    'quotaMonitor/manageKey': (request: QuotaKeyRequest) => Promise<RemoteResult<QuotaSnapshot>>
+    'quotaMonitor/readPendingAccounts': () => Promise<RemoteResult<QuotaSnapshot>>
+    'quotaMonitor/refreshAccounts': () => Promise<RemoteResult<QuotaSnapshot>>
     'quotaMonitor/resetStats': (request: QuotaResetStatsRequest) => Promise<RemoteResult<QuotaSnapshot>>
     'quotaMonitor/setBalances': (request: QuotaSetBalancesRequest) => Promise<RemoteResult<Record<string, number>>>
   }

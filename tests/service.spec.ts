@@ -71,13 +71,16 @@ class NoCredentials extends CredentialProvider {
   async deleteRecord(): Promise<void> {}
 }
 
-async function start(script: Array<StreamChunk[] | Error>): Promise<{ ctx: Context; llm: LlmRuntime }> {
+async function start(
+  script: Array<StreamChunk[] | Error>,
+  settingsRows: readonly { ns: string; value: unknown }[] = [],
+): Promise<{ ctx: Context; llm: LlmRuntime }> {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   // The forms API replaced the namespace-document provider this suite used to
   // install; an empty `describe()` is the same "no provider profile" seam, and
   // the monitor's settings read addresses both shapes structurally.
-  ctx.provide('settings', { describe: () => [] } as never)
+  ctx.provide('settings', { describe: () => settingsRows } as never)
   await ctx.plugin(NoCredentials)
   installStubSeams(ctx)
   // Background rounds are disabled so no test depends on a timer firing.
@@ -94,6 +97,65 @@ async function drain(stream: AsyncIterable<StreamChunk>): Promise<StreamChunk[]>
 }
 
 describe('QuotaMonitorService', () => {
+  it('withdraws disabled providers from accounts while retaining their usage history', async () => {
+    const { ctx, llm } = await start([])
+    const route = llm.registerAdapter(['removed'], new ScriptedAdapter([[
+      { type: 'usage', usage: { inputTokens: 21, outputTokens: 13 } },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]]))
+    // A disabled profile can remain in the configurable directory; only live
+    // adapters belong in the current account selector.
+    llm.registerConfigurableProviders([{
+      provider: 'removed', displayName: 'Removed', settingsNs: 'removed-profile', settingsPath: [],
+    }])
+    try {
+      await drain(llm.stream({ provider: 'removed', model: 'm', messages: [] }))
+      await ctx.quotaMonitor.getAccount({ provider: 'removed' })
+      route.replace([])
+      const snapshot = ctx.quotaMonitor.getSnapshot()
+      expect(snapshot.providers.map(provider => provider.id)).toEqual(['mock'])
+      expect(snapshot.rows.find(row => row.id === 'removed')).toMatchObject({ calls: 1, totalTokens: 34 })
+      expect(snapshot.aggregate.totalTokens).toBe(34)
+      expect((await ctx.quotaMonitor.readPendingAccounts()).providers.map(provider => provider.id)).toEqual(['mock'])
+      await expect(ctx.quotaMonitor.getAccount({ provider: 'removed' })).rejects.toThrow('Provider is not currently registered')
+      await expect(ctx.quotaMonitor.manageKey({ provider: 'removed', action: 'rename', credentialRef: 'OLD', name: 'old' }))
+        .rejects.toThrow('Unknown provider')
+      // Removing the last live adapter must also produce an empty selector.
+      const last = llm.registerAdapter(['last'], new ScriptedAdapter([]))
+      last()
+      expect(ctx.quotaMonitor.getSnapshot().providers.some(provider => provider.id === 'last')).toBe(false)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('reconciles added, renamed and re-enabled routes and drops withdrawn profile references', async () => {
+    const { ctx, llm } = await start([], [{ ns: 'profile', value: { apiKeyEnv: 'OLD_KEY' } }])
+    const adapter = new ScriptedAdapter([])
+    let label = 'Original'
+    adapter.providerInfo = id => ({ id, name: label })
+    const route = llm.registerAdapter(['dynamic'], adapter)
+    const directory = llm.registerConfigurableProviders([{
+      provider: 'dynamic', displayName: 'Original', settingsNs: 'profile', settingsPath: [],
+    }])
+    try {
+      expect(ctx.quotaMonitor.getSnapshot().providers.find(provider => provider.id === 'dynamic'))
+        .toMatchObject({ name: 'Original', credentialRefs: ['OLD_KEY'] })
+      label = 'Renamed'
+      route.replace(['dynamic', 'added'])
+      expect(ctx.quotaMonitor.getSnapshot().providers.find(provider => provider.id === 'added'))?.toMatchObject({ name: 'Renamed' })
+      expect(ctx.quotaMonitor.getSnapshot().providers.find(provider => provider.id === 'dynamic'))?.toMatchObject({ name: 'Renamed' })
+      directory.replace([])
+      expect(ctx.quotaMonitor.getSnapshot().providers.find(provider => provider.id === 'dynamic'))?.toMatchObject({ credentialRefs: [] })
+      route.replace([])
+      expect(ctx.quotaMonitor.getSnapshot().providers.map(provider => provider.id)).toEqual(['mock'])
+      route.replace(['dynamic'])
+      expect(ctx.quotaMonitor.getSnapshot().providers.map(provider => provider.id)).toEqual(['mock', 'dynamic'])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('accounts one streaming call and its usage per provider route', async () => {
     const { ctx, llm } = await start([
       [

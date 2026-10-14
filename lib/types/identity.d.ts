@@ -14,7 +14,7 @@
  */
 import type { QuotaAccountMode } from './types.ts';
 /** Every account adapter this build can run. */
-export type QuotaAdapterId = 'deepseek-balance' | 'openrouter-balance' | 'moonshot-balance' | 'zai-balance' | 'orcarouter-balance' | 'new-api' | 'sub2api' | 'sub2api-auth' | 'agent-router' | 'stepcode' | 'general' | 'opencode-go' | 'zai-token-plan' | 'kimi-token-plan' | 'minimax-token-plan' | 'cline-plan' | 'ollama' | 'declarative';
+export type QuotaAdapterId = 'deepseek-balance' | 'openrouter-balance' | 'moonshot-balance' | 'zai-balance' | 'orcarouter-balance' | 'new-api' | 'sub2api' | 'sub2api-auth' | 'agent-router' | 'stepcode' | 'general' | 'command-code' | 'opencode-go' | 'zai-token-plan' | 'kimi-token-plan' | 'minimax-token-plan' | 'cline-plan' | 'ollama' | 'declarative';
 /**
  * Which mode each adapter reports in, so the panel picks its card frame before
  * the first read.

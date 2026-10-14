@@ -17,6 +17,8 @@ import type { QuotaAccountMode, QuotaBudgetPool, QuotaGatewayUsage, QuotaPlanWin
 
 /** What one adapter read from an account endpoint. */
 export interface QuotaAccountReading {
+  /** Identity disclosed by the account endpoint. */
+  accountName?: string
   /**
    * Which card frame this reading belongs in, when the answer itself decides.
    * A gateway that serves a wallet until a subscription is active reports its

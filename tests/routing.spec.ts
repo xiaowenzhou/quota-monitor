@@ -135,14 +135,20 @@ async function start(
   config: QuotaMonitorConfigInput,
   section: unknown = ROUTE_SECTION,
   credentials: Record<string, string> = BOTH_KEYS,
+  storedKeys?: unknown,
 ): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
+  let storedSection = section
   ctx.provide('settings', {
-    describe: () => [{ ns: 'quota-route', value: section }],
+    describe: () => [{ ns: 'quota-route', value: storedSection, revision: 1 }],
+    mutate: async (_ns: string, operations: Array<{ value: unknown }>) => {
+      if (typeof storedSection === 'object' && storedSection !== null) storedSection = { ...storedSection, apiKeyEnv: operations[0]?.value }
+    },
   } as never)
   await ctx.plugin(RouteCredentials, credentials)
-  installStubSeams(ctx)
+  const seams = installStubSeams(ctx)
+  if (storedKeys !== undefined) seams.storageDomain.keyRecords.set(ROUTE, storedKeys)
   // The route is registered before the monitor loads, so the monitor's load-time
   // identification reads the same topology a running deployment would have.
   ctx.llm.registerAdapter([ROUTE], new SilentAdapter())
@@ -307,6 +313,86 @@ describe('a route that routes its credential', () => {
     finally {
       await ctx.fiber.dispose()
     }
+  })
+})
+
+describe('key management', () => {
+  it('wires a normal provider and restores managed keys after restart', async () => {
+    stubFetch({ 'Bearer key-a': 6, 'Bearer key-b': 9 })
+    const config: QuotaMonitorConfigInput = { monitors: { [ROUTE]: { adapter: 'sub2api-auth' } } }
+    const ctx = await start(config, { baseURL: BASE_URL, apiKeyEnv: KEY_A })
+    let persisted: unknown
+    let credentials: Record<string, string> = {}
+    let activeRef: string | undefined
+    try {
+      await ctx.quotaMonitor.manageKey({ provider: ROUTE, action: 'add', credentialRef: KEY_B, name: 'Secondary' })
+      await ctx.quotaMonitor.manageKey({ provider: ROUTE, action: 'activate', credentialRef: KEY_B })
+      activeRef = routeEntry(ctx)?.routing?.activeRef
+      expect(activeRef).toMatch(/^QUOTA_ACTIVE_/)
+      expect(ctx.settings.describe()[0]?.value).toMatchObject({ apiKeyEnv: activeRef })
+      expect(routeEntry(ctx)?.activeCredentialRef).toBe(KEY_B)
+      credentials = Object.fromEntries((ctx.credentials as RouteCredentials).values)
+      persisted = (ctx.storageDomain as import('./stubs.ts').StubStorageDomain).keyRecords.get(ROUTE)
+      expect(JSON.stringify(persisted)).not.toContain('key-b')
+    } finally { await ctx.fiber.dispose() }
+    const restored = await start(config, { baseURL: BASE_URL, apiKeyEnv: activeRef }, credentials, persisted)
+    try {
+      expect(routeEntry(restored)?.credentialRefs).toEqual([KEY_A, KEY_B])
+      expect(routeEntry(restored)?.keyNames?.[KEY_B]).toBe('Secondary')
+      expect(routeEntry(restored)?.activeCredentialRef).toBe(KEY_B)
+      await callModel(restored)
+      expect(routeEntry(restored)?.activeCredentialRef).toBe(KEY_B)
+    } finally { await restored.fiber.dispose() }
+  })
+  it('adds a key without exposing its value, renames it, pins it and detaches it', async () => {
+    stubFetch({ 'Bearer key-a': 6, 'Bearer key-b': 9 })
+    const ctx = await start(routingBothKeys(), ROUTE_SECTION, { ...BOTH_KEYS, [ACTIVE_REF]: 'key-a' })
+    try {
+      const snapshot = await ctx.quotaMonitor.manageKey({ provider: ROUTE, action: 'add', key: 'third-secret', name: 'Work' })
+      const ref = snapshot.providers[0]!.credentialRefs.find(value => value !== KEY_A && value !== KEY_B)!
+      expect(JSON.stringify(snapshot)).not.toContain('third-secret')
+      expect((ctx.credentials as RouteCredentials).values.get(ref)).toBe('third-secret')
+      await ctx.quotaMonitor.manageKey({ provider: ROUTE, action: 'rename', credentialRef: ref, name: 'Backup' })
+      expect(routeEntry(ctx)?.keyNames?.[ref]).toBe('Backup')
+      await ctx.quotaMonitor.manageKey({ provider: ROUTE, action: 'activate', credentialRef: ref })
+      await callModel(ctx)
+      expect(routeEntry(ctx)?.activeCredentialRef).toBe(ref)
+      expect(routeEntry(ctx)?.routing?.mode).toBe('manual')
+      expect((ctx.credentials as RouteCredentials).values.get(ACTIVE_REF)).toBe('third-secret')
+      await expect(ctx.quotaMonitor.manageKey({ provider: ROUTE, action: 'remove', credentialRef: ref })).rejects.toThrow('Switch away')
+      await ctx.quotaMonitor.manageKey({ provider: ROUTE, action: 'activate', credentialRef: KEY_A })
+      await ctx.quotaMonitor.manageKey({ provider: ROUTE, action: 'remove', credentialRef: ref })
+      expect(routeEntry(ctx)?.credentialRefs).not.toContain(ref)
+      expect((ctx.credentials as RouteCredentials).values.get(ref)).toBe('third-secret')
+      expect(routeEntry(ctx)?.keyNames?.[ref]).toBeUndefined()
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('rejects overwriting existing references and reading other providers keys', async () => {
+    const ctx = await start(routingBothKeys())
+    try {
+      await expect(ctx.quotaMonitor.manageKey({ provider: ROUTE, action: 'add', credentialRef: KEY_A, key: 'overwrite' })).rejects.toThrow('already monitored')
+      await expect(ctx.quotaMonitor.getAccount({ provider: ROUTE, credentialRef: 'SOME_OTHER_KEY' })).rejects.toThrow('not monitored')
+      expect((ctx.credentials as RouteCredentials).values.get(KEY_A)).toBe('key-a')
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('reads fresh quotas on enabling automatic routing and refuses exhausted keys', async () => {
+    stubFetch({ 'Bearer key-a': 0, 'Bearer key-b': 8 })
+    const ctx = await start(routingBothKeys(), ROUTE_SECTION, { ...BOTH_KEYS, [ACTIVE_REF]: 'key-a' })
+    try {
+      await ctx.quotaMonitor.manageKey({ provider: ROUTE, action: 'routing', mode: 'quota' })
+      expect(routeEntry(ctx)?.activeCredentialRef).toBe(KEY_B)
+      await ctx.quotaMonitor.manageKey({ provider: ROUTE, action: 'routing', mode: 'manual' })
+      stubFetch({ 'Bearer key-a': 100, 'Bearer key-b': 8 })
+      await ctx.quotaMonitor.refreshAccounts()
+      await callModel(ctx)
+      expect(routeEntry(ctx)?.activeCredentialRef).toBe(KEY_B)
+      await ctx.quotaMonitor.manageKey({ provider: ROUTE, action: 'routing', mode: 'quota' })
+      stubFetch({ 'Bearer key-a': 0, 'Bearer key-b': 0 })
+      await ctx.quotaMonitor.refreshAccounts()
+      await expect(callModel(ctx)).rejects.toThrow('no healthy key')
+    } finally { await ctx.fiber.dispose() }
   })
 })
 

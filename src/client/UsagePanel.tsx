@@ -16,6 +16,7 @@ import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   QuotaAccount,
   QuotaAccountRequest,
+  QuotaKeyRequest,
   QuotaExportDocument,
   QuotaExportKind,
   QuotaExportRequest,
@@ -39,6 +40,7 @@ import css from './UsagePanel.module.css'
 /** The mounted `ctx.remote.quotaMonitor` face the panel talks to. */
 export interface QuotaMonitorApi {
   getSnapshot(): Promise<RemoteResult<QuotaSnapshot>>
+  manageKey(request: QuotaKeyRequest): Promise<RemoteResult<QuotaSnapshot>>
   readPendingAccounts(): Promise<RemoteResult<QuotaSnapshot>>
   refreshAccounts(): Promise<RemoteResult<QuotaSnapshot>>
   getAccount(request: QuotaAccountRequest): Promise<RemoteResult<QuotaAccount>>
@@ -51,6 +53,8 @@ export interface QuotaMonitorApi {
 /** Owner share handed down by the main-panel entry. */
 export interface UsagePanelInjected {
   quota: QuotaMonitorApi
+  /** The Host's model registry is the current provider directory. */
+  subscribeProviders?: (listener: () => void) => () => void
 }
 
 /** Composed props of the panel entry: root runtime seat, `t`, and the Host face. */
@@ -76,7 +80,7 @@ function BrandGlyph() {
   </svg>
 }
 
-export function UsagePanel({ t, quota }: UsagePanelProps) {
+export function UsagePanel({ t, quota, subscribeProviders }: UsagePanelProps) {
   const [snapshot, setSnapshot] = useState<QuotaSnapshot | undefined>()
   const [account, setAccount] = useState<QuotaAccount | undefined>()
   /** The selected route's own figures: the totals, calendar, and sessions below. */
@@ -96,13 +100,28 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
   useEffect(() => () => {
     requests.current.usage++
     requests.current.account++
+    requests.current.snapshot++
   }, [])
 
   const applySnapshot = useCallback((value: QuotaSnapshot) => {
+    const current = selection.current
+    const entry = value.providers.find(candidate => candidate.id === current.id) ?? value.providers[0]
+    const id = entry?.id
+    const credentialRef = id === current.id
+      && (current.credentialRef === undefined || entry?.credentialRefs.includes(current.credentialRef))
+      ? current.credentialRef
+      : entry?.activeCredentialRef ?? entry?.credentialRefs[0]
     setSnapshot(value)
-    // The first provider becomes the selection only while none is held, so a
-    // background refresh never moves the card out from under the reader.
-    setProvider(current => current ?? value.providers[0]?.id)
+    if (id === current.id && credentialRef === current.credentialRef) return
+    // Invalidate in-flight reads immediately, before React commits the new
+    // selection, so a deleted route cannot repaint its old balance afterward.
+    selection.current = { id, credentialRef }
+    requests.current.account++
+    requests.current.usage++
+    setAccount(undefined)
+    setUsage(undefined)
+    setProvider(id)
+    setCredential(credentialRef)
   }, [])
 
   const loadSnapshot = useCallback(async () => {
@@ -156,14 +175,18 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
     void loadPending()
   }, [loadPending])
 
+  useEffect(() => subscribeProviders?.(() => { void loadSnapshot() }), [subscribeProviders, loadSnapshot])
+
+  const hasSnapshot = snapshot !== undefined
+  const hasProvider = snapshot?.providers.some(entry => entry.id === provider) === true
   useEffect(() => {
-    if (provider === undefined) return
+    if (!hasSnapshot) return
     setAccount(undefined)
     setUsage(undefined)
-    void loadAccount(provider, credential, false)
-    // The statistics follow the same selection as the account card.
+    if (provider !== undefined && hasProvider) void loadAccount(provider, credential, false)
+    // Historical routes still have statistics, but no current account or keys.
     void loadUsage(provider, false)
-  }, [provider, credential, loadAccount, loadUsage])
+  }, [provider, credential, hasSnapshot, hasProvider, loadAccount, loadUsage])
 
   const refreshAll = useCallback(async () => {
     setBusy(true)
@@ -265,6 +288,12 @@ export function UsagePanel({ t, quota }: UsagePanelProps) {
           }}
           onRefresh={() => {
             if (provider !== undefined) void loadAccount(provider, credential, true)
+          }}
+          onManage={async request => {
+            const result = await quota.manageKey(request)
+            if (!result.ok) throw new Error(result.error.message)
+            applySnapshot(result.value)
+            await loadPending()
           }}
           onManualChange={(id, value) => { void setManual(id, value) }}
         />}
