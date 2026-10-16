@@ -338,22 +338,30 @@ export class QuotaMonitorService extends TypertRemoteService {
     const slot = this.slotFor(request)
     this.focused = slot
     const cached = this.accounts.get(accountKey(slot))
-    if (cached !== undefined && request.refresh !== true) return cached
+    if (cached !== undefined && request.refresh !== true && !this.retryDue(cached)) return cached
     return this.readAccount(slot)
   }
 
+  /** Bound retries of temporary upstream failures to the active refresh interval. */
+  private retryDue(account: QuotaAccount): boolean {
+    return this.transientFailure(account.status) && Date.now() - account.fetchedAt >= this.config.refresh.activeMs
+  }
+
+  private transientFailure(status: QuotaAccount['status']): boolean {
+    return status === 'unavailable' || status === 'rate-limited' || status === 'invalid-response'
+  }
+
   /**
-   * Read every monitored credential that has no cached reading yet, and answer
-   * with the resulting snapshot.
-   *
-   * This is what opening the panel needs: every key a deployment monitors
-   * states its own figure, while the readings a previous round already took are
-   * served from cache rather than queried again.
+   * Read missing credentials and retry expired temporary failures, then answer
+   * with the resulting snapshot. Successful cached readings are reused.
    * @returns the snapshot carrying the readings.
    */
   @Remote('readPendingAccounts')
   async readPendingAccounts(): Promise<QuotaSnapshot> {
-    await this.readRouteAccounts(slot => !this.accounts.has(accountKey(slot)))
+    await this.readRouteAccounts(slot => {
+      const cached = this.accounts.get(accountKey(slot))
+      return cached === undefined || this.retryDue(cached)
+    })
     return this.snapshot()
   }
 
@@ -769,6 +777,7 @@ export class QuotaMonitorService extends TypertRemoteService {
       id,
       now: () => Date.now(),
       credential: reference => this.resolveApiKey(reference),
+      usageDays: this.config.usage.days,
       ...baseURL === undefined ? {} : { baseURL },
       ...apiKey === undefined ? {} : { apiKey },
       ...entry?.usageBaseURL === undefined ? {} : { usageBaseURL: entry.usageBaseURL },
@@ -795,8 +804,13 @@ export class QuotaMonitorService extends TypertRemoteService {
       const status = error instanceof QuotaRequestError ? error.status : 'unavailable'
       const reason = error instanceof QuotaRequestError ? error.message : 'account read failed'
       const missing = status === 'not-configured' ? credentialRefsFor(adapter.id) : []
+      const previous = this.accounts.get(accountKey(slot))
+      const history = this.transientFailure(status) && previous?.adapter === adapter.id && previous.keyUsage !== undefined
+        ? { keyUsage: previous.keyUsage, keyUsageFetchedAt: previous.keyUsageFetchedAt ?? previous.fetchedAt, ...previous.accountName === undefined ? {} : { accountName: previous.accountName } }
+        : {}
       return this.publish({
         ...base,
+        ...history,
         mode,
         adapter: adapter.id,
         status,
@@ -831,6 +845,7 @@ export class QuotaMonitorService extends TypertRemoteService {
       ...reading.planWindows === undefined ? {} : { planWindows: reading.planWindows },
       ...reading.budgetPools === undefined ? {} : { budgetPools: reading.budgetPools },
       ...reading.usage === undefined ? {} : { usage: reading.usage },
+      ...reading.keyUsage === undefined ? {} : { keyUsage: reading.keyUsage },
       ...warning === undefined ? {} : { warning },
     }
   }

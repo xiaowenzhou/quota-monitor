@@ -9,7 +9,8 @@
  * @module @deepseek-ai/dsh-extension-quota-monitor/client/UsagePanel
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Button, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
@@ -23,18 +24,14 @@ import type {
   QuotaResetStatsRequest,
   QuotaSetBalancesRequest,
   QuotaSnapshot,
+  QuotaProviderEntry,
   QuotaUsageReport,
   QuotaUsageRequest,
 } from '../types.ts'
 import type {} from './locales.ts'
+import { MemberAnalysis } from './MemberAnalysis.tsx'
 import { AccountCard } from './AccountCard.tsx'
-import { ExportBar } from './ExportBar.tsx'
-import { UsageHeatmap } from './UsageHeatmap.tsx'
-import { DayBreakdown } from './DayBreakdown.tsx'
-import { ProviderUsage } from './ProviderUsage.tsx'
-import { SessionList } from './SessionList.tsx'
-import { TotalsRow } from './TotalsRow.tsx'
-import { ModelUsage } from './ModelUsage.tsx'
+import { LocalStats } from './LocalStats.tsx'
 import css from './UsagePanel.module.css'
 
 /** The mounted `ctx.remote.quotaMonitor` face the panel talks to. */
@@ -69,15 +66,37 @@ function monthOf(date: string): string {
   return date.slice(0, 7)
 }
 
-/** The header's mark: a compact bar chart, the panel's own subject. */
-function BrandGlyph() {
-  return <svg className={css.brandGlyph} viewBox="0 0 24 24" aria-hidden="true">
-    <g fill="currentColor">
-      <rect x="3" y="13" width="4" height="8" rx="1.4" />
-      <rect x="10" y="8" width="4" height="13" rx="1.4" />
-      <rect x="17" y="3" width="4" height="18" rx="1.4" />
-    </g>
-  </svg>
+/**
+ * Whether a provider's upstream reports per-key token history.
+ *
+ * Only the StepCode / AgentRouter desk does today. Any other provider would
+ * render an analysis of empty tiles and charts, so the panel shows its
+ * allowance and the local calls instead. The adapter decides it, so a
+ * temporary failed read cannot remove a known analysis surface.
+ */
+function supportsAnalysis(entry: QuotaProviderEntry): boolean {
+  return entry.adapter === 'stepcode' || entry.accounts.some(account => account.keyUsage !== undefined)
+}
+
+/** The page's views; which of them a provider offers depends on what its upstream reports. */
+type PanelView = 'current' | 'members' | 'account' | 'local'
+
+const viewLabels = {
+  current: 'tab.current',
+  members: 'analysis.openMembers',
+  account: 'tab.account',
+  local: 'tab.local',
+} as const
+
+/** The tab a walk key lands on, per the WAI-ARIA tabs pattern; wraps at both ends. */
+function walkTab(key: string, index: number, count: number): number | undefined {
+  switch (key) {
+    case 'ArrowRight': return (index + 1) % count
+    case 'ArrowLeft': return (index + count - 1) % count
+    case 'Home': return 0
+    case 'End': return count - 1
+    default: return undefined
+  }
 }
 
 export function UsagePanel({ t, quota, subscribeProviders }: UsagePanelProps) {
@@ -93,6 +112,10 @@ export function UsagePanel({ t, quota, subscribeProviders }: UsagePanelProps) {
   const [month, setMonth] = useState<string | undefined>()
   const [selectedDay, setSelectedDay] = useState<string | undefined>()
   const [busy, setBusy] = useState(false)
+  /** The view the reader picked; a provider without it falls back to its first view. */
+  const [view, setView] = useState<PanelView | undefined>()
+  const [memberCredential, setMemberCredential] = useState<string | undefined>()
+  const tabsId = useId()
   const selection = useRef({ id: provider, credentialRef: credential })
   const requests = useRef({ usage: 0, account: 0, snapshot: 0 })
   selection.current = { id: provider, credentialRef: credential }
@@ -105,7 +128,10 @@ export function UsagePanel({ t, quota, subscribeProviders }: UsagePanelProps) {
 
   const applySnapshot = useCallback((value: QuotaSnapshot) => {
     const current = selection.current
-    const entry = value.providers.find(candidate => candidate.id === current.id) ?? value.providers[0]
+    const entry = value.providers.find(candidate => candidate.id === current.id)
+      ?? value.providers.filter(supportsAnalysis)
+        .sort((a, b) => b.credentialRefs.length - a.credentialRefs.length)[0]
+      ?? value.providers[0]
     const id = entry?.id
     const credentialRef = id === current.id
       && (current.credentialRef === undefined || entry?.credentialRefs.includes(current.credentialRef))
@@ -167,7 +193,17 @@ export function UsagePanel({ t, quota, subscribeProviders }: UsagePanelProps) {
     })
     if (result.ok && request === requests.current.account
       && selection.current.id === id && selection.current.credentialRef === credentialRef) {
-      setAccount(result.value)
+      const reading = result.value
+      setAccount(reading)
+      setSnapshot(previous => previous === undefined ? previous : {
+        ...previous,
+        capturedAt: Math.max(previous.capturedAt, reading.fetchedAt),
+        providers: previous.providers.map(entry => {
+          if (entry.id !== reading.id) return entry
+          const others = entry.accounts.filter(item => item.credentialRef !== reading.credentialRef)
+          return { ...entry, accounts: [...others, reading] }
+        }),
+      })
     }
   }, [quota])
 
@@ -225,13 +261,25 @@ export function UsagePanel({ t, quota, subscribeProviders }: UsagePanelProps) {
   // The month shown defaults to the one carrying today's figures, and stays
   // put once the reader moves it.
   const activeMonth = month ?? (usage === undefined ? undefined : monthOf(usage.today))
-  const days = usage?.days ?? []
-  const selected = useMemo(
-    () => days.find(day => day.date === selectedDay),
-    [days, selectedDay],
-  )
 
   const providers = snapshot?.providers ?? []
+  const selectedEntry = providers.find(entry => entry.id === provider)
+  // Both follow the selected provider: another provider's history says
+  // nothing about this one, and one key has no members to compare.
+  const analysis = selectedEntry !== undefined && supportsAnalysis(selectedEntry)
+  const members = analysis && (selectedEntry?.credentialRefs.length ?? 0) > 1
+  const views: readonly PanelView[] = analysis
+    ? members ? ['current', 'members', 'account', 'local'] : ['current', 'account', 'local']
+    : ['account', 'local']
+  const shown = view !== undefined && views.includes(view) ? view : views[0]!
+  const tabId = (value: PanelView) => `${tabsId}-${value}`
+  const onTabKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const next = walkTab(event.key, index, views.length)
+    if (next === undefined) return
+    event.preventDefault()
+    setView(views[next])
+    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]').item(next).focus()
+  }
   const row = snapshot?.rows.find(entry => entry.id === provider)
   // The folded report carries route keys; the snapshot is what knows a display
   // name for one, so the two are joined here rather than in the Host.
@@ -245,128 +293,111 @@ export function UsagePanel({ t, quota, subscribeProviders }: UsagePanelProps) {
     : providerNames[provider] ?? provider
 
   return <div className={css.panel}>
-    <header className={css.header}>
-      <div className={css.brand}>
-        <span className={css.brandMark}><BrandGlyph /></span>
-        <div>
-          <h1 className={css.title}>{t('panel.title')}</h1>
-          <p className={css.subtitle}>{t('panel.subtitle')}</p>
+    <div className={css.page}>
+      <header className={css.pageHead}>
+        <div className={css.pageHeading}>
+          <h1 className={css.pageTitle}>{t('panel.title')}</h1>
+          <p className={css.pageIntro}>{t('panel.subtitle')}</p>
         </div>
-      </div>
-      <div className={css.actions}>
-        <button
-          type="button"
-          className={`${css.action} ${css.actionPrimary}`}
-          onClick={() => void refreshAll()}
-          disabled={busy}
-        >{busy ? t('action.refreshing') : t('action.refresh')}</button>
-        <button
-          type="button"
-          className={css.action}
-          onClick={() => void resetStats()}
-        >{t('action.reset')}</button>
-      </div>
-    </header>
+        <div className={css.toolbar}>
+          {providers.length > 0 && <label className={css.scope}>
+            <span>{t('keypage.scope')}</span>
+            <select
+              className={css.select}
+              value={provider ?? ''}
+              onChange={event => {
+                const entry = providers.find(item => item.id === event.target.value)
+                if (entry === undefined) return
+                setProvider(entry.id)
+                setCredential(entry.activeCredentialRef ?? entry.credentialRefs[0])
+                setMemberCredential(undefined)
+              }}
+            >{providers.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select>
+          </label>}
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<IconRefreshOutlineRegular size={14} />}
+            onClick={() => void refreshAll()}
+            disabled={busy}
+            aria-busy={busy}
+          >{busy ? t('action.refreshing') : t('action.refresh')}</Button>
+        </div>
+      </header>
 
-    <section className={css.section}>
-      <div className={css.sectionHead}>
-        <h2 className={css.sectionTitle}>{t('account.heading')}</h2>
+      <div className={css.tabs} role="tablist" aria-label={t('tab.label')}>
+        {views.map((value, index) => <button
+          key={value}
+          id={tabId(value)}
+          type="button"
+          role="tab"
+          className={css.tab}
+          aria-selected={shown === value}
+          aria-controls={`${tabsId}-panel`}
+          tabIndex={shown === value ? 0 : -1}
+          onClick={() => { setView(value) }}
+          onKeyDown={event => { onTabKey(event, index) }}
+        >{t(viewLabels[value])}</button>)}
       </div>
-      {providers.length === 0
-        ? <p className={css.empty}>{t('account.empty')}</p>
-        : <AccountCard
+
+      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={tabId(shown)} className={css.view}>
+        {shown === 'current' && snapshot !== undefined && <MemberAnalysis
           t={t}
           providers={providers}
-          selected={provider}
-          selectedCredential={credential}
-          account={account}
-          manualTotal={row?.balance?.total}
-          manualRemaining={row?.balance?.remaining}
-          onSelect={(id, credentialRef) => {
-            setProvider(id)
-            setCredential(credentialRef)
-          }}
-          onRefresh={() => {
-            if (provider !== undefined) void loadAccount(provider, credential, true)
-          }}
-          onManage={async request => {
-            const result = await quota.manageKey(request)
-            if (!result.ok) throw new Error(result.error.message)
-            applySnapshot(result.value)
-            await loadPending()
-          }}
-          onManualChange={(id, value) => { void setManual(id, value) }}
+          provider={provider}
+          credential={credential}
+          capturedAt={snapshot.capturedAt}
+          mode="current"
+          onSelect={() => {}}
         />}
-    </section>
-
-    <section className={css.section}>
-      <div className={css.sectionHead}>
-        <h2 className={css.sectionTitle}>{t('usage.heading')}</h2>
-        {scopeName === undefined
-          ? null
-          : <span className={css.sectionMeta}>{t('usage.scope', { provider: scopeName })}</span>}
+        {shown === 'members' && snapshot !== undefined && <MemberAnalysis
+          t={t}
+          providers={providers}
+          provider={provider}
+          credential={memberCredential}
+          capturedAt={snapshot.capturedAt}
+          onSelect={(id, ref) => { setProvider(id); setMemberCredential(ref) }}
+        />}
+        {shown === 'account' && (providers.length === 0
+          ? <p className={css.empty}>{t('account.empty')}</p>
+          : <AccountCard
+            t={t}
+            providers={providers}
+            selected={provider}
+            selectedCredential={credential}
+            account={account}
+            manualTotal={row?.balance?.total}
+            manualRemaining={row?.balance?.remaining}
+            onSelect={(id, credentialRef) => {
+              setProvider(id)
+              setCredential(credentialRef)
+            }}
+            onRefresh={() => {
+              if (provider !== undefined) void loadAccount(provider, credential, true)
+            }}
+            onManage={async request => {
+              const result = await quota.manageKey(request)
+              if (!result.ok) throw new Error(result.error.message)
+              applySnapshot(result.value)
+              await loadPending()
+            }}
+            onManualChange={(id, value) => { void setManual(id, value) }}
+          />)}
+        {shown === 'local' && <LocalStats
+          t={t}
+          usage={usage}
+          allUsage={allUsage}
+          names={providerNames}
+          provider={provider}
+          scopeName={scopeName}
+          month={activeMonth}
+          selectedDay={selectedDay}
+          onSelectDay={setSelectedDay}
+          onMonthChange={setMonth}
+          onExport={exportUsage}
+          onReset={() => void resetStats()}
+        />}
       </div>
-      <TotalsRow t={t} usage={usage} />
-    </section>
-
-    <section className={css.section}>
-      <div className={css.sectionHead}>
-        <h2 className={css.sectionTitle}>{t('model.heading')}</h2>
-      </div>
-      <ModelUsage t={t} models={usage?.models ?? []} names={providerNames} />
-    </section>
-
-    <section className={css.section}>
-      <div className={css.sectionHead}>
-        <h2 className={css.sectionTitle}>{t('provider.heading')}</h2>
-        <span className={css.sectionMeta}>{t('provider.hint')}</span>
-      </div>
-      <ProviderUsage
-        t={t}
-        providers={allUsage?.providers ?? []}
-        names={providerNames}
-        selected={provider}
-        onSelect={(id) => {
-          setProvider(id)
-          // A route picked from the comparison table reads its first key,
-          // which is what an absent reference names.
-          setCredential(undefined)
-        }}
-        allTimeTokens={allUsage?.allTimeTotals.totalTokens ?? 0}
-        todayTokens={allUsage?.todayTotals.totalTokens ?? 0}
-        monthTokens={allUsage?.monthTotals.totalTokens ?? 0}
-      />
-    </section>
-
-    <section className={css.section}>
-      <div className={css.sectionHead}>
-        <h2 className={css.sectionTitle}>{t('heatmap.heading')}</h2>
-      </div>
-      <UsageHeatmap
-        t={t}
-        days={days}
-        month={activeMonth}
-        today={usage?.today}
-        selected={selectedDay}
-        onSelect={setSelectedDay}
-        onMonthChange={setMonth}
-      />
-    </section>
-
-    <DayBreakdown t={t} date={selectedDay} day={selected} />
-
-    <section className={css.section}>
-      <div className={css.sectionHead}>
-        <h2 className={css.sectionTitle}>{t('session.heading')}</h2>
-      </div>
-      <SessionList t={t} sessions={usage?.sessions ?? []} />
-    </section>
-
-    <section className={css.section}>
-      <div className={css.sectionHead}>
-        <h2 className={css.sectionTitle}>{t('export.heading')}</h2>
-      </div>
-      <ExportBar t={t} onExport={exportUsage} />
-    </section>
+    </div>
   </div>
 }

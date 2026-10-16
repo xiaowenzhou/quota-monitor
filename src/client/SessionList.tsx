@@ -11,7 +11,7 @@
 import type { QuotaSessionUsage } from '../types.ts'
 import type { QuotaTranslate } from './UsagePanel.tsx'
 import { fmtCost, fmtDateTime, fmtNumber, fmtTokens } from './format.ts'
-import css from './UsagePanel.module.css'
+import css from './LocalStats.module.css'
 
 /** How many rows the list shows before it stops, so one busy corpus stays readable. */
 const MAX_ROWS = 20

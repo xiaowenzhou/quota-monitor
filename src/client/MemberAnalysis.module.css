@@ -1,0 +1,172 @@
+/* Key analysis (当前 Key / 成员分析): balance hero, period pills, KPI cards,
+   member ranking, charts, then quiet footnotes. Tokens come from the panel. */
+.root { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; min-width: 0; }
+.title { margin: 0; color: var(--dsw-alias-label-primary); font-size: 15px; font-weight: 600; line-height: 22px; }
+.meta { min-width: 0; margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.label { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+
+/* Hero: what is left, what this period cost, and how much of the allowance it is. */
+.hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 40px;
+  padding: 20px 24px;
+  border: 1px solid var(--qm-card-border);
+  border-radius: var(--qm-card-radius);
+  background: var(--qm-card-bg);
+}
+.heroMain { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.heroFigure { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.heroValue { color: var(--dsw-alias-label-primary); font-size: 32px; font-weight: 600; line-height: 40px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.badgeOk {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--qm-ok) 14%, transparent);
+  color: var(--qm-ok);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.statusNote { color: var(--qm-warn); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.heroStats { display: flex; flex-wrap: wrap; gap: 12px 32px; margin: 0; }
+.heroStats > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.heroStats dt { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+.heroStats dd { margin: 0; color: var(--dsw-alias-label-primary); font-size: 18px; font-weight: 600; line-height: 26px; font-variant-numeric: tabular-nums; }
+.heroMeter { display: flex; flex-basis: 100%; align-items: center; gap: 12px; }
+.heroMeter .meter { flex: 1 1 auto; }
+.heroMeter .meta { flex: none; font-variant-numeric: tabular-nums; }
+.meter { display: block; height: 6px; overflow: hidden; border-radius: 3px; background: var(--qm-track); }
+.meter > i { display: block; height: 100%; border-radius: inherit; background: var(--qm-accent); }
+
+/* Period choice: the same pill rhythm as the page tabs, one step smaller. */
+.periodBar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+.pill:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }
+.pill[aria-pressed='true'] { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); font-weight: 500; }
+.note {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--qm-warn) 10%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* KPI cards. */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 16px 20px;
+  border: 1px solid var(--qm-card-border);
+  border-radius: var(--qm-card-radius);
+  background: var(--qm-card-bg);
+}
+.tileValue { color: var(--dsw-alias-label-primary); font-size: 22px; font-weight: 600; line-height: 30px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* Member ranking: one selectable card per key. */
+.memberList { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.memberCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--qm-card-border);
+  border-radius: var(--qm-tile-radius);
+  background: var(--qm-card-bg);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.memberCard:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.memberCard[aria-pressed='true'] { border-color: color-mix(in srgb, var(--qm-accent) 45%, transparent); background: var(--qm-accent-soft); }
+.memberRank {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--qm-tile-bg);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.memberBody { display: flex; flex: 1 1 auto; flex-direction: column; gap: 6px; min-width: 0; }
+.memberTop { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.memberTop strong { min-width: 0; overflow: hidden; color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.memberTop > span { flex: none; color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.memberMeta { display: flex; flex-wrap: wrap; gap: 2px 10px; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }
+
+/* Exact figures fold away under a quiet chevron row. */
+.subHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin-top: 8px; }
+.subTitle { margin: 0; color: var(--dsw-alias-label-primary); font-size: 15px; font-weight: 600; line-height: 22px; overflow-wrap: anywhere; }
+.extras { display: flex; flex-direction: column; gap: 8px; }
+.more { min-width: 0; border: 1px solid var(--qm-card-border); border-radius: var(--qm-tile-radius); background: var(--qm-card-bg); }
+.more > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  list-style: none;
+  cursor: pointer;
+  border-radius: inherit;
+}
+.more > summary::-webkit-details-marker { display: none; }
+.more > summary:hover { color: var(--dsw-alias-label-primary); }
+.chevron { width: 6px; height: 6px; margin: 0 2px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .15s ease; }
+.more[open] > summary .chevron { transform: rotate(45deg); }
+.tableWrap { overflow-x: auto; padding: 0 6px 8px; }
+.table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 20px; }
+.table th { padding: 8px 10px; border-bottom: 1px solid var(--qm-divider); color: var(--dsw-alias-label-tertiary); font-size: 12px; font-weight: 500; line-height: 18px; text-align: left; white-space: nowrap; }
+.table td { padding: 8px 10px; color: var(--dsw-alias-label-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table tbody tr + tr td { border-top: 1px solid var(--qm-divider); }
+.table tbody tr:hover td { background: var(--dsw-alias-interactive-bg-hover); }
+.numeric { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--qm-font-mono); font-size: 12px; }
+.empty { margin: 0; padding: 16px; border-radius: var(--qm-tile-radius); background: var(--qm-tile-bg); color: var(--dsw-alias-label-tertiary); font-size: 13px; text-align: center; }
+.footnotes { display: flex; flex-direction: column; gap: 2px; }
+.footnotes p { margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }
+
+@media (max-width: 600px) {
+  .hero { padding: 16px; }
+  .heroValue { font-size: 28px; line-height: 36px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pill, .memberCard, .chevron { transition: none; }
+}

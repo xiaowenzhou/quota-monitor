@@ -16,7 +16,8 @@ import { useMemo, useState } from 'react'
 import type { QuotaCostView, QuotaProviderUsage } from '../types.ts'
 import type { QuotaTranslate } from './UsagePanel.tsx'
 import { fmtCost, fmtNumber, fmtPercent, fmtTokens } from './format.ts'
-import css from './UsagePanel.module.css'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import css from './LocalStats.module.css'
 
 /** The range a row's figures cover. */
 type Scope = 'today' | 'month' | 'allTime'
@@ -83,8 +84,6 @@ export interface ProviderUsageProps {
   names: Readonly<Record<string, string>>
   /** The route the panel's statistics follow. */
   selected: string | undefined
-  /** Select a route, which re-scopes the statistics above this section. */
-  onSelect: (id: string) => void
   /** All-time tokens across every route, the denominator of the all-time share. */
   allTimeTokens: number
   /** Tokens folded for today, the denominator of the today share. */
@@ -95,19 +94,18 @@ export interface ProviderUsageProps {
 
 /**
  * One route's row: its figures for the selected range, its share of that range,
- * and the lifetime facts that belong to no single range. Selecting it makes it
- * the route the rest of the panel describes.
+ * and the lifetime facts that belong to no single range. Provider selection
+ * belongs to the page toolbar.
  * @param props - the row and the state it renders against.
  * @returns the row element.
  */
-function ProviderRow({ t, row, names, scope, denominator, selected, onSelect }: {
+function ProviderRow({ t, row, names, scope, denominator, selected }: {
   t: QuotaTranslate
   row: QuotaProviderUsage
   names: Readonly<Record<string, string>>
   scope: Scope
   denominator: number
   selected: boolean
-  onSelect: (id: string) => void
 }) {
   const name = names[row.provider]
   const figures = figuresOf(row, scope)
@@ -123,11 +121,8 @@ function ProviderRow({ t, row, names, scope, denominator, selected, onSelect }: 
     t('provider.lastDay', { date: row.lastDay }),
   ].filter(part => part !== undefined)
 
-  return <button
-    type="button"
+  return <div
     className={`${css.providerRow} ${selected ? css.providerRowActive : ''}`}
-    aria-pressed={selected}
-    onClick={() => onSelect(row.provider)}
   >
     <span className={css.providerHead}>
       <span className={css.providerName}>{name ?? row.provider}</span>
@@ -144,7 +139,7 @@ function ProviderRow({ t, row, names, scope, denominator, selected, onSelect }: 
       {figures.cost === undefined ? null : <span className={css.providerCost}>{fmtCost(figures.cost)}</span>}
     </span>
     <span className={css.providerMeta}>{meta.join(' · ')}</span>
-  </button>
+  </div>
 }
 
 export function ProviderUsage({
@@ -152,7 +147,6 @@ export function ProviderUsage({
   providers,
   names,
   selected,
-  onSelect,
   allTimeTokens,
   todayTokens,
   monthTokens,
@@ -191,12 +185,12 @@ export function ProviderUsage({
       </div>
       {providers.length === 1
         ? null
-        : <button
-          type="button"
-          className={css.providerToggle}
+        : <Button
+          variant="ghost"
+          size="sm"
           aria-expanded={expanded}
           onClick={() => setExpanded(current => !current)}
-        >{expanded ? t('provider.showSelected') : t('provider.showAll', { count: String(providers.length) })}</button>}
+        >{expanded ? t('provider.showSelected') : t('provider.showAll', { count: String(providers.length) })}</Button>}
     </div>
     {rows.map(row => <ProviderRow
       key={row.provider}
@@ -206,7 +200,6 @@ export function ProviderUsage({
       scope={scope}
       denominator={denominator}
       selected={row.provider === selected}
-      onSelect={onSelect}
     />)}
     {sorted.length > active.length
       ? <p className={css.sectionMeta}>

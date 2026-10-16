@@ -119,6 +119,15 @@ export interface QuotaAccount {
      * one route can only be told apart by asking each endpoint about its own.
      */
     usage?: readonly QuotaGatewayUsage[];
+    /**
+     * What this credential actually spent, as the provider's own desk API meters
+     * it. Present when the provider publishes a per-key usage endpoint beside the
+     * account one — StepCode/AgentRouter does — and absent otherwise, so a card
+     * never draws a token figure the endpoint never stated.
+     */
+    keyUsage?: QuotaKeyUsage;
+    /** Last successful history read, present when a transient failure retains older data. */
+    keyUsageFetchedAt?: number;
     /** Severity of the remaining figure, when one could be resolved. */
     warning?: QuotaWarningLevel;
     /**
@@ -155,6 +164,110 @@ export interface QuotaGatewayUsage {
     cost?: number;
     /** Unit `cost` is denominated in, when the row states one. */
     currency?: string;
+}
+/**
+ * Token buckets as a desk endpoint meters them for one credential.
+ *
+ * `reasoningTokens` and `cacheWriteTokens` are kept apart from the totals
+ * because a reasoning model bills them differently; an endpoint that reports
+ * only the sum leaves the split absent rather than zero.
+ */
+export interface QuotaKeyTokens {
+    inputTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    /** Sum of every bucket above, as the endpoint reports it. */
+    totalTokens: number;
+}
+/** Call counters as a desk endpoint meters them for one credential. */
+export interface QuotaKeyCalls {
+    calls: number;
+    successCalls: number;
+    failedCalls: number;
+    streamCalls: number;
+}
+/**
+ * One row of the usage endpoint's series: tokens are what it exists to report,
+ * so they are required, while a row that states no call counters leaves them
+ * absent instead of drawing a zero.
+ */
+export interface QuotaKeyPoint extends QuotaKeyTokens, Partial<QuotaKeyCalls> {
+    /** Calendar day, `YYYY-MM-DD`. */
+    date: string;
+    /** Model id the day's calls named. */
+    model: string;
+}
+/** One model's share of a credential's token use over the requested window. */
+export interface QuotaKeyModelUsage extends QuotaKeyTokens, Partial<QuotaKeyCalls> {
+    model: string;
+}
+/** One day's share of a credential's token use over the requested window. */
+export interface QuotaKeyDayUsage extends QuotaKeyTokens, Partial<QuotaKeyCalls> {
+    /** Calendar day, `YYYY-MM-DD`. */
+    date: string;
+}
+/** Totals over one requested window: the usage endpoint's own grand total. */
+export type QuotaKeyWindow = QuotaKeyTokens & Partial<QuotaKeyCalls>;
+/**
+ * One credential's metered billing period, on the same clock as its allowance.
+ *
+ * The desk account endpoint states this beside the balance, so unlike
+ * {@link QuotaKeyUsage.window} it is not limited to the requested day count and
+ * is the figure that reconciles with `used`/`limit`. A section that meters only
+ * calls or only tokens leaves the other half absent rather than zero.
+ */
+export interface QuotaKeyPeriod extends Partial<QuotaKeyTokens>, Partial<QuotaKeyCalls> {
+    /** Upstream period key, e.g. `2026-10`. */
+    periodKey?: string;
+    /** Period bounds, ISO 8601 with offset. */
+    startAt?: string;
+    endAt?: string;
+    /** Epoch ms the endpoint last folded this period, when it states one. */
+    updatedAt?: number;
+    /** Spend and allowance over the same period, for reconciliation with the card. */
+    used?: number;
+    limit?: number;
+    remaining?: number;
+    percentUsed?: number;
+    currency?: string;
+}
+/**
+ * What one credential actually spent, beside what it was allowed.
+ *
+ * This is the per-key half of the desk API: the account endpoint answers per
+ * `Authorization` header, so every figure here belongs to exactly one key —
+ * unlike this plugin's own fold, which can only attribute a call to a route.
+ *
+ * The three series overlap by design. `models` and `daily` are the endpoint's
+ * own aggregates and are what the page draws; `points` is the finer per-day
+ * per-model series, present when the endpoint discloses it, and it is what
+ * makes a shorter window a slice rather than another request.
+ * @see QuotaAccount.keyUsage
+ */
+export interface QuotaKeyUsage {
+    /** Requested history window, in days (1–366). */
+    days: number;
+    /** Window bounds the endpoint answered with, when it states them. */
+    startDate?: string;
+    endDate?: string;
+    /** The billing period's own totals, from the account endpoint. */
+    period?: QuotaKeyPeriod;
+    /** Totals over {@link days}, from the usage endpoint. */
+    window?: QuotaKeyWindow;
+    /** Per-model totals over the window, from the usage endpoint. */
+    models: readonly QuotaKeyModelUsage[];
+    /** Per-day totals over the window, from the usage endpoint. */
+    daily: readonly QuotaKeyDayUsage[];
+    /**
+     * Per-day per-model rows over the window, when the endpoint discloses them.
+     *
+     * Empty when the endpoint answers only pre-aggregated totals; a consumer that
+     * needs a shorter window must then fall back to {@link models} and
+     * {@link daily} rather than slice this.
+     */
+    points: readonly QuotaKeyPoint[];
 }
 /** Manual balance fallback for one provider id. */
 export interface QuotaBalanceEstimate {

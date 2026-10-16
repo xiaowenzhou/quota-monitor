@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react'
 import type { QuotaModelSummary } from '../types.ts'
 import type { QuotaTranslate } from './UsagePanel.tsx'
 import { fmtAmount, fmtCost, fmtNumber, fmtPercent } from './format.ts'
-import css from './UsagePanel.module.css'
+import css from './LocalStats.module.css'
 
 /** Time range used by the model table. */
 type Scope = 'today' | 'month' | 'all'
@@ -36,14 +36,17 @@ export function ModelUsage({ t, models, names }: ModelUsageProps) {
       || a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model)), [models, scope])
 
   return <div className={css.modelUsage}>
-    <div className={css.selector} role="group" aria-label={t('model.range')}>
-      {(Object.keys(SCOPES) as Scope[]).map(key => <button
-        key={key}
-        type="button"
-        className={`${css.selectorChip} ${scope === key ? css.selectorChipActive : ''}`}
-        aria-pressed={scope === key}
-        onClick={() => setScope(key)}
-      >{t(SCOPES[key])}</button>)}
+    <div className={css.sectionHead}>
+      <h2 className={css.sectionTitle}>{t('model.heading')}</h2>
+      <div className={css.selector} role="group" aria-label={t('model.range')}>
+        {(Object.keys(SCOPES) as Scope[]).map(key => <button
+          key={key}
+          type="button"
+          className={`${css.selectorChip} ${scope === key ? css.selectorChipActive : ''}`}
+          aria-pressed={scope === key}
+          onClick={() => setScope(key)}
+        >{t(SCOPES[key])}</button>)}
+      </div>
     </div>
     <p className={css.sectionMeta}>{t('model.estimate')}</p>
     {sorted.length === 0 ? <p className={css.empty}>{t('model.empty')}</p> : <div className={css.tableCard}>
@@ -51,13 +54,13 @@ export function ModelUsage({ t, models, names }: ModelUsageProps) {
         <thead><tr>
           <th scope="col">{t('detail.model')}</th>
           <th scope="col">{t('detail.provider')}</th>
-          <th scope="col">{t('model.calls')}</th>
-          <th scope="col">{t('usage.input')}</th>
-          <th scope="col">{t('usage.output')}</th>
-          <th scope="col">{t('usage.cacheRead')}</th>
-          <th scope="col">{t('usage.cacheWrite')}</th>
-          <th scope="col">{t('usage.cacheHit')}</th>
-          <th scope="col">{t('detail.cost')}</th>
+          <th scope="col" className={css.numeric}>{t('model.calls')}</th>
+          <th scope="col" className={css.numeric}>{t('usage.input')}</th>
+          <th scope="col" className={css.numeric}>{t('usage.output')}</th>
+          <th scope="col" className={css.numeric}>{t('usage.cacheRead')}</th>
+          <th scope="col" className={css.numeric}>{t('usage.cacheWrite')}</th>
+          <th scope="col" className={css.numeric}>{t('usage.cacheHit')}</th>
+          <th scope="col" className={css.numeric}>{t('detail.cost')}</th>
           <th scope="col">{t('model.rates')}</th>
         </tr></thead>
         <tbody>{sorted.map((row) => {

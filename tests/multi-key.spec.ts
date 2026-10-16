@@ -11,6 +11,8 @@ import type {
 import LlmRuntime, { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { QuotaMonitorService } from '../src/index.ts'
+import { stepcode } from '../src/adapters/stepcode.ts'
+import { QuotaRequestError } from '../src/http.ts'
 import { Config, assertConsistent } from '../src/config.ts'
 import type { QuotaMonitorConfigInput } from '../src/config.ts'
 import { installStubSeams, requestUrl } from './stubs.ts'
@@ -142,9 +144,61 @@ function balanceReads(calls: readonly Call[]): Array<string | null> {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 describe('a route monitored through several keys', () => {
+  it('retries expired transient failures on reopening or selecting a key without rereading healthy keys', async () => {
+    let now = Date.now()
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    let failing = true
+    const calls: string[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get('authorization')!
+      if (requestUrl(input).endsWith('/user/balance')) calls.push(authorization)
+      return failing && authorization === 'Bearer key-a'
+        ? new Response('{}', { status: 500 })
+        : new Response(JSON.stringify({ data: { balance: 8 } }), { status: 200 })
+    })
+    const ctx = await start(monitoringBothKeys())
+    try {
+      expect((await ctx.quotaMonitor.getAccount({ provider: ROUTE })).status).toBe('unavailable')
+      await ctx.quotaMonitor.readPendingAccounts()
+      expect(calls).toEqual(['Bearer key-a', 'Bearer key-b'])
+      failing = false
+      now += 60_001
+      const reopened = await ctx.quotaMonitor.readPendingAccounts()
+      expect(reopened.providers[0]?.accounts.map(account => account.status)).toEqual(['ok', 'ok'])
+      expect(calls).toEqual(['Bearer key-a', 'Bearer key-b', 'Bearer key-a'])
+      failing = true
+      await ctx.quotaMonitor.getAccount({ provider: ROUTE, refresh: true })
+      failing = false
+      now += 60_001
+      expect((await ctx.quotaMonitor.getAccount({ provider: ROUTE })).status).toBe('ok')
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('retains each key’s last successful history across transient failures and clears its stale marker on recovery', async () => {
+    const keyUsage = { days: 62, models: [], daily: [], points: [{ date: '2026-10-15', model: 'model-a', totalTokens: 100 }] }
+    const read = vi.spyOn(stepcode, 'read').mockResolvedValue({ mode: 'balance', remaining: 8, keyUsage })
+    const ctx = await start({ monitors: { [ROUTE]: { adapter: 'stepcode', credentialRefs: [KEY_A, KEY_B] } } })
+    try {
+      const good = await ctx.quotaMonitor.getAccount({ provider: ROUTE, credentialRef: KEY_A })
+      read.mockRejectedValue(new QuotaRequestError('unavailable', 'account endpoint returned HTTP 500'))
+      for (let i = 0; i < 2; i++) {
+        const failed = await ctx.quotaMonitor.getAccount({ provider: ROUTE, credentialRef: KEY_A, refresh: true })
+        expect(failed).toMatchObject({ status: 'unavailable', keyUsage, keyUsageFetchedAt: good.fetchedAt })
+        expect(failed.remaining).toBeUndefined()
+      }
+      expect((await ctx.quotaMonitor.getAccount({ provider: ROUTE, credentialRef: KEY_B })).keyUsage).toBeUndefined()
+      read.mockResolvedValue({ mode: 'balance', remaining: 9, keyUsage })
+      const recovered = await ctx.quotaMonitor.getAccount({ provider: ROUTE, credentialRef: KEY_A, refresh: true })
+      expect(recovered).toMatchObject({ status: 'ok', remaining: 9, keyUsage })
+      expect(recovered.keyUsageFetchedAt).toBeUndefined()
+      read.mockRejectedValue(new QuotaRequestError('unauthorized', 'invalid key'))
+      expect((await ctx.quotaMonitor.getAccount({ provider: ROUTE, credentialRef: KEY_A, refresh: true })).keyUsage).toBeUndefined()
+    } finally { await ctx.fiber.dispose() }
+  })
   it('reads every monitored key and keeps each reading under its own key', async () => {
     const calls = stubFetch()
     const ctx = await start(monitoringBothKeys())

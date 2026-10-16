@@ -7,7 +7,7 @@
 import type { QuotaDayUsage } from '../types.ts'
 import type { QuotaTranslate } from './UsagePanel.tsx'
 import { fmtCost, fmtNumber, fmtTokens } from './format.ts'
-import css from './UsagePanel.module.css'
+import css from './LocalStats.module.css'
 
 /** The breakdown's props. */
 export interface DayBreakdownProps {
@@ -17,10 +17,12 @@ export interface DayBreakdownProps {
 }
 
 export function DayBreakdown({ t, date, day }: DayBreakdownProps) {
-  if (date === undefined) return <p className={css.empty}>{t('detail.hint')}</p>
+  if (date === undefined) return <section className={css.section}>
+    <p className={css.empty}>{t('detail.hint')}</p>
+  </section>
   const priced = day?.cost !== undefined
 
-  return <div className={css.section}>
+  return <section className={css.section}>
     <div className={css.sectionHead}>
       <h2 className={css.sectionTitle}>{t('detail.heading', { date })}</h2>
       {day?.cost === undefined
@@ -51,5 +53,5 @@ export function DayBreakdown({ t, date, day }: DayBreakdownProps) {
           </tbody>
         </table>
       </div>}
-  </div>
+  </section>
 }

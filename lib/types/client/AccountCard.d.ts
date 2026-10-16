@@ -1,6 +1,6 @@
 /**
- * The account card: one provider's balance or plan windows, with the provider
- * selector, the endpoint status, and the manual allowance fallback.
+ * The selected provider's balance, plan windows, key management and read status.
+ * Provider selection belongs to the page toolbar.
  *
  * A non-`ok` status renders its reason instead of a figure. The card never
  * substitutes zero for a number it could not read.

@@ -97,13 +97,12 @@ export declare class QuotaMonitorService extends TypertRemoteService {
      * @returns the account, including a non-`ok` status when it cannot be read.
      */
     getAccount(request: QuotaAccountRequest): Promise<QuotaAccount>;
+    /** Bound retries of temporary upstream failures to the active refresh interval. */
+    private retryDue;
+    private transientFailure;
     /**
-     * Read every monitored credential that has no cached reading yet, and answer
-     * with the resulting snapshot.
-     *
-     * This is what opening the panel needs: every key a deployment monitors
-     * states its own figure, while the readings a previous round already took are
-     * served from cache rather than queried again.
+     * Read missing credentials and retry expired temporary failures, then answer
+     * with the resulting snapshot. Successful cached readings are reused.
      * @returns the snapshot carrying the readings.
      */
     readPendingAccounts(): Promise<QuotaSnapshot>;

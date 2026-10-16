@@ -12,7 +12,8 @@ import { useMemo } from 'react'
 import type { QuotaDayUsage } from '../types.ts'
 import type { QuotaTranslate } from './UsagePanel.tsx'
 import { fmtNumber, fmtTokens } from './format.ts'
-import css from './UsagePanel.module.css'
+import { Button, IconChevronLeftOutlineRegular, IconChevronRightOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import css from './LocalStats.module.css'
 
 /** Shading steps, from no usage to the month's own maximum. */
 const LEVELS = 5
@@ -94,19 +95,23 @@ export function UsageHeatmap({
 
   return <div className={css.calendar}>
     <div className={css.calendarHead}>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         className={css.navButton}
+        icon={<IconChevronLeftOutlineRegular size={14} />}
         aria-label={t('heatmap.prev')}
         onClick={() =>{  onMonthChange(shiftMonth(month, -1)) }}
-      >‹</button>
+      />
       <span className={css.calendarMonth}>{month}</span>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         className={css.navButton}
+        icon={<IconChevronRightOutlineRegular size={14} />}
         aria-label={t('heatmap.next')}
         onClick={() =>{  onMonthChange(shiftMonth(month, 1)) }}
-      >›</button>
+      />
     </div>
 
     <div className={css.weekdayRow} aria-hidden="true">

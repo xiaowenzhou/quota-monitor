@@ -1,0 +1,754 @@
+/**
+ * Per-key usage page styling: the scope selector, the allowance tiles, one
+ * compact card per key, and the selected key's detail.
+ *
+ * Every colour comes from a `--dsw-alias-*` design token, so both themes follow
+ * the platform. The four token buckets are told apart by one accent ramped
+ * through `color-mix`, which keeps a single accent decision driving the page.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  /* The center column clips its overflow, so this page is its own scroll
+     container: filling that column with `min-height: 0` is what lets a wheel
+     gesture scroll these sections instead of being swallowed by the frame. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Header */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.brandMark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    var(--dsw-alias-state-business-primary),
+    color-mix(in srgb, var(--dsw-alias-state-business-primary) 60%, white)
+  );
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.brandGlyph {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.action:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.actionPrimary {
+  border-color: transparent;
+  background: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.actionPrimary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 88%, black);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+/* Scope selector: the routes that monitor more than one key */
+
+.scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scopeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.scopeChip:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.scopeChipActive {
+  border-color: var(--dsw-alias-state-business-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, var(--dsw-alias-bg-layer-1));
+  color: var(--dsw-alias-label-primary);
+}
+
+.scopeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.scopeDotWarn {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.scopeDotBad {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.scopeCount {
+  color: var(--dsw-alias-label-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Summary tiles */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 10px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.tileLabel {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.tileValue {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.tileUnit {
+  margin-left: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.tileNote {
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+}
+
+/* Section frame */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.sectionMeta {
+  margin: 0;
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+}
+
+.empty {
+  margin: 0;
+  padding: 20px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+  font-size: 12px;
+}
+
+/* One card per key */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 10px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+}
+
+.card:hover {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.cardActive {
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 1px var(--dsw-alias-state-business-primary);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cardDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-label-caption);
+}
+
+/* Declared after the base dot: equal specificity means source order decides,
+   and these are the same single-class shape. */
+.cardDotOk {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.cardDotWarn {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.cardDotBad {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.cardName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.cardTag {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.cardTagActive {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, transparent);
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.cardSub {
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+}
+
+.figures {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.figureRight {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.figureLabel {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.figureValue {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.figureValueSmall {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* A flex track, so the fill child takes its height without an inline display. */
+.bar {
+  display: flex;
+  height: 6px;
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-alias-bg-layer-3);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-alias-state-business-primary);
+  transition: width 160ms ease-out;
+}
+
+.barFillWarn {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.barFillCritical {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.metaValue {
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.note {
+  margin: 0;
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+}
+
+.noteBad {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* Detail: the selected key */
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.detailHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.detailIdentity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, transparent);
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.detailName {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.detailSub {
+  margin: 1px 0 0;
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.blockTitle {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Pools and plan windows */
+
+.poolList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.poolRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.poolTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.poolName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.poolFigures {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Token split: one stacked bar plus its legend */
+
+.split {
+  display: flex;
+  height: 12px;
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-alias-bg-layer-3);
+  overflow: hidden;
+}
+
+.seg {
+  height: 100%;
+  transition: width 160ms ease-out;
+}
+
+.segInput {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.segOutput {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 68%, white);
+}
+
+.segCacheWrite {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 42%, white);
+}
+
+.segCacheRead {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 22%, white);
+}
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.legendSwatch {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.legendLabel {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.legendValue {
+  margin-left: auto;
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.legendShare {
+  width: 44px;
+  text-align: right;
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Per-model bars */
+
+.modelList {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.modelRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  align-items: center;
+  gap: 10px;
+}
+
+.modelTrack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.modelLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+
+.modelFill {
+  height: 6px;
+  border-radius: 999px;
+  corner-shape: round;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, transparent);
+}
+
+.modelValue {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Daily bars */
+
+.daily {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 92px;
+  padding-top: 4px;
+}
+
+.dailySlot {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+  min-width: 2px;
+  border: none;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.dailySlot:disabled {
+  cursor: default;
+}
+
+.dailyBar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, transparent);
+}
+
+.dailyBarIdle {
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.dailyBarActive {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.dailyAxis {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+}
+
+/* Tables */
+
+.tableCard {
+  padding: 6px 14px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-2);
+  overflow-x: auto;
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th,
+.table td {
+  padding: 7px 8px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table th {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: ui-monospace, sfmono-regular, menlo, consolas, monospace;
+  font-size: 11px;
+}

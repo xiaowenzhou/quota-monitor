@@ -10,7 +10,7 @@
  */
 import type { QuotaRequestOptions } from '../http.ts';
 import type { QuotaAdapterId } from '../identity.ts';
-import type { QuotaAccountMode, QuotaBudgetPool, QuotaGatewayUsage, QuotaPlanWindow } from '../types.ts';
+import type { QuotaAccountMode, QuotaBudgetPool, QuotaGatewayUsage, QuotaKeyUsage, QuotaPlanWindow } from '../types.ts';
 /** What one adapter read from an account endpoint. */
 export interface QuotaAccountReading {
     /** Identity disclosed by the account endpoint. */
@@ -43,6 +43,13 @@ export interface QuotaAccountReading {
      * any. These are the gateway's figures, not this plugin's fold.
      */
     usage?: readonly QuotaGatewayUsage[];
+    /**
+     * What this credential spent, when the provider publishes a per-key usage
+     * endpoint beside its account one. Kept structured rather than folded into
+     * {@link usage} because the two are metered on different clocks: `usage` is
+     * whatever the account answer stated, while this carries its own window.
+     */
+    keyUsage?: QuotaKeyUsage;
 }
 /**
  * One usage row an endpoint reported about its own credential.
@@ -85,6 +92,12 @@ export interface QuotaAdapterContext {
      * Empty or absent means the route is fenced only by the transport rule.
      */
     allowedHosts?: readonly string[];
+    /**
+     * How many days of per-key usage history to ask a desk endpoint for, from
+     * `usage.days`. Absent lets the adapter apply its own default; the value is
+     * advisory, because an endpoint may clamp or ignore it.
+     */
+    usageDays?: number;
     /** Current epoch milliseconds, injected so window math is testable. */
     now(): number;
     /** Injected fetch, so tests drive adapters without network access. */

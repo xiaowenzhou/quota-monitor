@@ -13,7 +13,7 @@ import type {
 } from '../types.ts'
 import type { QuotaTranslate } from './UsagePanel.tsx'
 import { fmtCost, fmtPercent, fmtTime, fmtTokens } from './format.ts'
-import css from './UsagePanel.module.css'
+import css from './LocalStats.module.css'
 
 /** Dictionary key naming each budget state. */
 const BUDGET_STATUS_KEYS: Readonly<Record<QuotaBudgetStatus, 'budget.status.normal'

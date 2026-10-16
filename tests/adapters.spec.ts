@@ -408,6 +408,23 @@ describe('stepcode', () => {
         { name: 'team-a', remaining: 12, limit: 20, percentUsed: 40 },
         { name: 'team-b', remaining: 12, limit: 15, percentUsed: 20 },
       ],
+      // The usage endpoint is absent from this table, so the key keeps the
+      // allowance its account answered with and reports no token series: a
+      // token read that fails must never cost the balance beside it.
+      keyUsage: {
+        days: 62,
+        period: {
+          used: 25,
+          limit: 100,
+          remaining: 75,
+          percentUsed: 25,
+          currency: 'CNY',
+          endAt: '2026-04-01T00:00:00Z',
+        },
+        models: [],
+        daily: [],
+        points: [],
+      },
     })
   })
 
@@ -470,6 +487,144 @@ describe('stepcode', () => {
     ])
     // Only the pool that disclosed an allowance becomes a budget row.
     expect(reading?.budgetPools?.map(pool => pool.name)).toEqual(['二组'])
+  })
+
+  it('reads the per-key token series beside the allowance', async () => {
+    const adapter = adapterFor('stepcode')
+    const reading = await adapter?.read(context({
+      baseURL: 'https://co.air-outer.com',
+      usageDays: 14,
+      fetchImpl: serve({
+        'https://co.air-outer.com/desk/v1/stepcode/user/info': {
+          code: 200,
+          data: { usage_summary: { used: 10, total: 100, cost_currency: 'CNY' } },
+        },
+        'https://co.air-outer.com/desk/v2/stepcode/usage/model-tokens?days=14': {
+          code: 200,
+          data: {
+            window_days: 14,
+            start_date: '2026-03-02',
+            end_date: '2026-03-15',
+            rows: [
+              {
+                date: '2026-03-14',
+                model: 'gpt-5.6-sol',
+                total_tokens: 1_000,
+                input_tokens: 600,
+                output_tokens: 400,
+                reasoning_tokens: 100,
+                success_calls: 3,
+                failed_calls: 1,
+                total_calls: 4,
+              },
+              {
+                date: '2026-03-15',
+                model: 'gpt-5.6-sol',
+                total_tokens: 500,
+                input_tokens: 300,
+                output_tokens: 200,
+                success_calls: 1,
+                failed_calls: 0,
+                total_calls: 1,
+              },
+            ],
+            model_totals: [
+              {
+                model: 'gpt-5.6-sol',
+                total_tokens: 1_500,
+                input_tokens: 900,
+                output_tokens: 600,
+                reasoning_tokens: 100,
+                success_calls: 4,
+                failed_calls: 1,
+                total_calls: 5,
+              },
+            ],
+            daily_totals: [
+              { date: '2026-03-14', total_tokens: 1_000, input_tokens: 600, output_tokens: 400, total_calls: 4 },
+              { date: '2026-03-15', total_tokens: 500, input_tokens: 300, output_tokens: 200, total_calls: 1 },
+            ],
+            grand_total: {
+              total_tokens: 1_500,
+              input_tokens: 900,
+              output_tokens: 600,
+              success_calls: 4,
+              failed_calls: 1,
+              total_calls: 5,
+            },
+          },
+        },
+      }),
+    }))
+
+    expect(reading?.keyUsage).toMatchObject({
+      days: 14,
+      startDate: '2026-03-02',
+      endDate: '2026-03-15',
+      window: { totalTokens: 1_500, inputTokens: 900, outputTokens: 600, calls: 5, successCalls: 4, failedCalls: 1 },
+      models: [{ model: 'gpt-5.6-sol', totalTokens: 1_500, calls: 5 }],
+      daily: [
+        { date: '2026-03-14', totalTokens: 1_000, calls: 4 },
+        { date: '2026-03-15', totalTokens: 500, calls: 1 },
+      ],
+      points: [
+        { date: '2026-03-14', model: 'gpt-5.6-sol', totalTokens: 1_000, calls: 4 },
+        { date: '2026-03-15', model: 'gpt-5.6-sol', totalTokens: 500, calls: 1 },
+      ],
+      // The account half of the same read still answers the allowance.
+      period: { used: 10, limit: 100, remaining: 90, currency: 'CNY' },
+    })
+    // Every counter the desk reports folds from the same rows, so the window,
+    // the per-model totals and the per-day totals must agree.
+    const usage = reading?.keyUsage
+    const summed = [usage?.window, ...(usage?.models ?? []), ...(usage?.daily ?? [])]
+    expect(new Set(summed.map(entry => entry?.totalTokens))).toEqual(new Set([1_500, 1_500, 1_000, 500]))
+  })
+
+  it('derives a row total from its buckets without counting reasoning twice', async () => {
+    const adapter = adapterFor('stepcode')
+    const reading = await adapter?.read(context({
+      baseURL: 'https://co.air-outer.com',
+      fetchImpl: serve({
+        'https://co.air-outer.com/desk/v1/stepcode/user/info': {
+          code: 200,
+          data: { usage_summary: { used: 1, total: 10 } },
+        },
+        // No total_tokens and no pre-aggregated sections: the adapter must fold
+        // the rows itself, and `reasoning_tokens` is a subset of the output.
+        'https://co.air-outer.com/desk/v2/stepcode/usage/model-tokens?days=62': {
+          code: 200,
+          data: {
+            rows: [
+              {
+                date: '2026-03-01',
+                model: 'gpt-5.6-sol',
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_read_tokens: 850,
+                cache_creation_tokens: 0,
+                reasoning_tokens: 400,
+                success_calls: 2,
+                failed_calls: 0,
+                total_calls: 2,
+              },
+            ],
+          },
+        },
+      }),
+    }))
+
+    expect(reading?.keyUsage?.window).toMatchObject({
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheReadTokens: 850,
+      reasoningTokens: 400,
+      totalTokens: 1_000,
+      calls: 2,
+    })
+    expect(reading?.keyUsage?.models?.map(model => model.totalTokens)).toEqual([1_000])
+    expect(reading?.keyUsage?.daily?.map(day => day.totalTokens)).toEqual([1_000])
+    expect(reading?.keyUsage?.days).toBe(62)
   })
 })
 

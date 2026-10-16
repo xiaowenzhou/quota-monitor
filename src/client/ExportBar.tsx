@@ -11,7 +11,8 @@
 import { useCallback, useState } from 'react'
 import type { QuotaExportDocument, QuotaExportKind } from '../types.ts'
 import type { QuotaTranslate } from './UsagePanel.tsx'
-import css from './UsagePanel.module.css'
+import { Button, IconDownloadOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import css from './LocalStats.module.css'
 
 /** The row's props. */
 export interface ExportBarProps {
@@ -59,15 +60,16 @@ export function ExportBar({ t, onExport }: ExportBarProps) {
     }
   }, [onExport])
 
-  return <div>
+  return <div className={css.export}>
     <div className={css.exportRow}>
-      {KINDS.map(([kind, key]) => <button
+      {KINDS.map(([kind, key]) => <Button
         key={kind}
-        type="button"
-        className={css.action}
+        variant="outline"
+        size="sm"
+        icon={<IconDownloadOutlineRegular size={14} />}
         disabled={busy !== undefined}
         onClick={() => void run(kind)}
-      >{t(key)}</button>)}
+      >{t(key)}</Button>)}
     </div>
     <p className={css.sectionMeta}>{failed ? t('export.failed') : t('export.hint')}</p>
   </div>

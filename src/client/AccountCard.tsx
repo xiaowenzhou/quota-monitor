@@ -1,13 +1,14 @@
 /**
- * The account card: one provider's balance or plan windows, with the provider
- * selector, the endpoint status, and the manual allowance fallback.
+ * The selected provider's balance, plan windows, key management and read status.
+ * Provider selection belongs to the page toolbar.
  *
  * A non-`ok` status renders its reason instead of a figure. The card never
  * substitutes zero for a number it could not read.
  * @module @deepseek-ai/dsh-extension-quota-monitor/client/AccountCard
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Button, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   QuotaKeyRequest,
   QuotaAccount,
@@ -23,7 +24,7 @@ import type { QuotaTranslate } from './UsagePanel.tsx'
 import { fmtAmount, fmtNumber, fmtTime, fmtTokens, initialsOf, resetLabel } from './format.ts'
 import { WINDOW_KEYS } from './windows.ts'
 import { KeyManager } from './KeyManager.tsx'
-import css from './UsagePanel.module.css'
+import css from './AccountCard.module.css'
 
 /** Dictionary key naming each account status. */
 const STATUS_KEYS: Readonly<Record<QuotaAccountStatus, 'status.ok' | 'status.notConfigured'
@@ -81,15 +82,6 @@ function pillOf(account: QuotaAccount): string {
   return account.warning === 'warning' ? css.pillWarn ?? '' : css.pillOk ?? ''
 }
 
-/** Selector-dot class for one route's last known status. */
-function dotOf(status: QuotaAccountStatus, warning: QuotaWarningLevel | undefined): string {
-  if (status !== 'ok') {
-    return status === 'not-configured' || status === 'unsupported' ? '' : css.dotError ?? ''
-  }
-  if (warning === 'critical') return css.dotError ?? ''
-  return warning === 'warning' ? css.dotWarn ?? '' : css.dotOk ?? ''
-}
-
 /** The slot the card reads: a route, and one of its monitored credentials. */
 interface AccountSlot {
   id: string | undefined
@@ -106,25 +98,6 @@ interface AccountSlot {
  */
 function slotsOf(entry: QuotaProviderEntry): readonly (string | undefined)[] {
   return entry.credentialRefs.length === 0 ? [undefined] : entry.credentialRefs
-}
-
-/** The provider selector: one chip per watched credential, with its status dot. */
-function Selector({ t, providers, selected, onSelect }: {
-  t: QuotaTranslate
-  providers: readonly QuotaProviderEntry[]
-  selected: AccountSlot
-  onSelect: (id: string, credentialRef: string | undefined) => void
-}) {
-  return <div className={css.selector} aria-label={t('account.provider')}>
-    {providers.map(entry => <button key={entry.id} type="button"
-      aria-label={entry.name} aria-pressed={entry.id === selected.id}
-      className={`${css.selectorChip} ${entry.id === selected.id ? css.selectorChipActive : ''}`}
-      onClick={() => onSelect(entry.id, entry.activeCredentialRef || entry.credentialRefs[0])}>
-      <span className={`${css.dot} ${dotOf(entry.status, entry.warning)}`} aria-hidden="true" />
-      <span className={css.selectorName}>{entry.name}</span>
-      <span className={css.selectorFigure}>{entry.credentialRefs.length || 1}</span>
-    </button>)}
-  </div>
 }
 
 /** One plan window: a labelled bar with its used share and reset countdown. */
@@ -150,9 +123,12 @@ function WindowRow({ t, window: entry, tone }: {
 function PoolRow({ t, pool }: { t: QuotaTranslate; pool: QuotaBudgetPool }) {
   const amount = fmtAmount(pool.remaining)
   return <li className={css.poolRow}>
-    {pool.limit === undefined
+    <span>{pool.limit === undefined
       ? t('pool.remaining', { name: pool.name, amount })
-      : t('pool.remainingOfLimit', { name: pool.name, amount, limit: fmtAmount(pool.limit) })}
+      : t('pool.remainingOfLimit', { name: pool.name, amount, limit: fmtAmount(pool.limit) })}</span>
+    {pool.percentUsed === undefined ? null : <div className={css.bar}>
+      <div className={css.barFill} style={{ width: `${pool.percentUsed}%` }} />
+    </div>}
   </li>
 }
 
@@ -185,10 +161,10 @@ function GatewayRow({ t, row }: { t: QuotaTranslate; row: QuotaGatewayUsage }) {
   const tokens = gatewayTokens(row)
   if (tokens !== undefined) parts.push(fmtTokens(tokens))
   if (row.cost !== undefined) parts.push(fmtAmount(row.cost, row.currency))
-  return <li className={css.gatewayRow}>
-    <span className={css.gatewayLabel} title={row.label}>{row.label}</span>
-    <span className={css.gatewayValue}>{parts.join(' · ')}</span>
-  </li>
+  return <tr>
+    <td><span className={css.gatewayLabel} title={row.label}>{row.label}</span></td>
+    <td className={css.gatewayValue}>{parts.join(' · ')}</td>
+  </tr>
 }
 
 /**
@@ -208,14 +184,16 @@ function GatewayUsage({ t, usage }: { t: QuotaTranslate; usage: readonly QuotaGa
     <span className={css.poolsTitle}>{t('gateway.heading')}</span>
     <p className={css.gatewayHint}>{t('gateway.hint')}</p>
     {groups.map(([kind, rows]) => <div key={kind}>
-      <span className={css.gatewayGroup}>{t(GATEWAY_GROUPS[kind])}</span>
-      <ul className={css.poolList}>
-        {rows.slice(0, GATEWAY_ROWS).map(row => <GatewayRow
-          key={`${row.kind}:${row.label}`}
-          t={t}
-          row={row}
-        />)}
-      </ul>
+      <div className={css.tableScroll}>
+        <table className={css.gatewayTable}>
+          <thead><tr><th scope="col">{t(GATEWAY_GROUPS[kind])}</th><th scope="col">{t('gateway.figures')}</th></tr></thead>
+          <tbody>{rows.slice(0, GATEWAY_ROWS).map(row => <GatewayRow
+            key={`${row.kind}:${row.label}`}
+            t={t}
+            row={row}
+          />)}</tbody>
+        </table>
+      </div>
       {rows.length <= GATEWAY_ROWS
         ? null
         : <span className={css.gatewayMore}>{t('gateway.more', { count: String(GATEWAY_ROWS) })}</span>}
@@ -247,6 +225,7 @@ function ManualBalance({ t, provider, total, remaining, onChange }: {
         : <span className={css.manualValue}>
           {t('manual.remaining', { amount: fmtAmount(remaining) })}
         </span>}
+      <p className={css.manualHint}>{t('manual.hint')}</p>
     </div>
     <input
       className={css.manualInput}
@@ -258,21 +237,24 @@ function ManualBalance({ t, provider, total, remaining, onChange }: {
       onChange={(event) => { setDraft(event.target.value) }}
       onBlur={() => { onChange(provider, Number(draft)) }}
     />
-    <p className={css.manualHint}>{t('manual.hint')}</p>
   </div>
 }
 
-/** The identity row: avatar, provider name, mode, adapter and key chips, status pill. */
-function Identity({ t, name, credential, account }: {
+/**
+ * The card head: avatar, provider name, mode, adapter and key chips, status
+ * pill, then the card's action. The name is said once, as the card title.
+ */
+function Identity({ t, name, credential, account, action }: {
   t: QuotaTranslate
   name: string
   credential: string | undefined
   account: QuotaAccount | undefined
+  action: ReactNode
 }) {
   return <div className={css.accountHead}>
     <span className={css.avatar} aria-hidden="true">{initialsOf(name)}</span>
     <span className={css.accountIdentity}>
-      <span className={css.accountName}>{name}</span>
+      <h3 className={css.accountName} title={name}>{name}</h3>
       <span className={css.accountMeta}>
         {account === undefined ? null : <span className={css.chip}>{t(MODE_KEYS[account.mode])}</span>}
         {account === undefined ? null : <span className={css.chip}>{account.adapter}</span>}
@@ -283,6 +265,7 @@ function Identity({ t, name, credential, account }: {
     {account === undefined
       ? null
       : <span className={`${css.pill} ${pillOf(account)}`}>{t(STATUS_KEYS[account.status])}</span>}
+    {action}
   </div>
 }
 
@@ -293,25 +276,23 @@ function Figures({ t, account, tone }: {
   tone: string
 }) {
   if (account.remaining === undefined && account.unlimited !== true) return null
-  return <div className={css.hero}>
-    <span className={css.heroFigure}>
-      <span className={css.heroLabel}>{t('account.remaining')}</span>
-      <span className={`${css.heroValue} ${tone}`}>
+  return <div className={css.figures}>
+    <span className={css.figure}>
+      <span className={css.figureLabel}>{t('account.remaining')}</span>
+      <span className={`${css.figureValue} ${tone}`}>
         {account.unlimited === true
           ? t('account.unlimited')
           : fmtAmount(account.remaining, account.currency)}
       </span>
     </span>
-    <span className={css.heroSecondaries}>
-      {account.used === undefined ? null : <span className={css.secondary}>
-        <span className={css.secondaryLabel}>{t('account.used')}</span>
-        <span className={css.secondaryValue}>{fmtAmount(account.used, account.currency)}</span>
-      </span>}
-      {account.limit === undefined ? null : <span className={css.secondary}>
-        <span className={css.secondaryLabel}>{t('account.limit')}</span>
-        <span className={css.secondaryValue}>{fmtAmount(account.limit, account.currency)}</span>
-      </span>}
-    </span>
+    {account.used === undefined ? null : <span className={css.figure}>
+      <span className={css.figureLabel}>{t('account.used')}</span>
+      <span className={css.figureValue}>{fmtAmount(account.used, account.currency)}</span>
+    </span>}
+    {account.limit === undefined ? null : <span className={css.figure}>
+      <span className={css.figureLabel}>{t('account.limit')}</span>
+      <span className={css.figureValue}>{fmtAmount(account.limit, account.currency)}</span>
+    </span>}
   </div>
 }
 
@@ -333,56 +314,59 @@ export function AccountCard({
   // where the reader cannot tell them apart by the route name alone.
   const credential = slots.length > 1 ? account?.credentialRef : undefined
 
-  return <div className={`${css.card} ${css.cardTint}`}>
-    <div className={css.sectionHead}>
-      <Selector t={t} providers={providers} selected={slot} onSelect={onSelect} />
-      <button type="button" className={css.action} onClick={onRefresh}>{t('action.refresh')}</button>
-    </div>
+  return <div className={css.stack}>
+    <section className={css.card}>
+      <Identity
+        t={t}
+        name={name}
+        credential={credential}
+        account={account}
+        action={<Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular size={14} />} onClick={onRefresh}>{t('action.refresh')}</Button>}
+      />
+      {account?.accountName ? <p className={css.reason}>{account.accountName}</p> : null}
 
+      {account === undefined ? null : account.status === 'ok'
+        ? <>
+          <Figures t={t} account={account} tone={tone} />
+
+          {windows.length === 0 ? null : <div className={css.windows}>
+            {windows.map(entry => <WindowRow key={entry.kind} t={t} window={entry} tone={tone} />)}
+          </div>}
+
+          {pools.length === 0 ? null : <div className={css.pools}>
+            <h4 className={css.poolsTitle}>{t('pools.heading')}</h4>
+            <ul className={css.poolList}>
+              {pools.map(pool => <PoolRow key={pool.name} t={t} pool={pool} />)}
+            </ul>
+          </div>}
+
+          {account.usage === undefined ? null : <GatewayUsage t={t} usage={account.usage} />}
+        </>
+        : <>
+          {account.reason === undefined || account.reason === t(STATUS_KEYS[account.status])
+            ? null : <p className={css.reason}>{account.reason}</p>}
+          {account.missingCredentials === undefined ? null : <p className={css.reason}>
+            {t('status.missingCredentials', { names: account.missingCredentials.join(', ') })}
+          </p>}
+        </>}
+
+      {showManual && selected !== undefined
+        ? <ManualBalance
+          t={t}
+          provider={selected}
+          total={manualTotal}
+          remaining={manualRemaining}
+          onChange={onManualChange}
+        />
+        : null}
+
+      {account?.status !== 'ok' ? null : <p className={css.cardMeta}>
+        {t('account.source', { adapter: account.adapter })}
+        {' · '}
+        {t('account.updated', { time: fmtTime(account.fetchedAt) })}
+      </p>}
+    </section>
     {entry === undefined ? null : <KeyManager key={entry.id} t={t} entry={entry} selected={slot.credentialRef}
       onSelect={ref => onSelect(entry.id, ref)} onManage={onManage} />}
-    <Identity t={t} name={name} credential={credential} account={account} />
-    {account?.accountName ? <p className={css.cardMeta}>{account.accountName}</p> : null}
-
-    {account === undefined ? null : account.status === 'ok'
-      ? <>
-        <Figures t={t} account={account} tone={tone} />
-
-        {windows.length === 0 ? null : <div className={css.windows}>
-          {windows.map(entry => <WindowRow key={entry.kind} t={t} window={entry} tone={tone} />)}
-        </div>}
-
-        {pools.length === 0 ? null : <div className={css.pools}>
-          <span className={css.poolsTitle}>{t('pools.heading')}</span>
-          <ul className={css.poolList}>
-            {pools.map(pool => <PoolRow key={pool.name} t={t} pool={pool} />)}
-          </ul>
-        </div>}
-
-        {account.usage === undefined ? null : <GatewayUsage t={t} usage={account.usage} />}
-
-        <p className={css.cardMeta}>
-          {t('account.source', { adapter: account.adapter })}
-          {' · '}
-          {t('account.updated', { time: fmtTime(account.fetchedAt) })}
-        </p>
-      </>
-      : <div>
-        <p className={css.status}>{t(STATUS_KEYS[account.status])}</p>
-        {account.reason === undefined ? null : <p className={css.reason}>{account.reason}</p>}
-        {account.missingCredentials === undefined ? null : <p className={css.reason}>
-          {t('status.missingCredentials', { names: account.missingCredentials.join(', ') })}
-        </p>}
-      </div>}
-
-    {showManual && selected !== undefined
-      ? <ManualBalance
-        t={t}
-        provider={selected}
-        total={manualTotal}
-        remaining={manualRemaining}
-        onChange={onManualChange}
-      />
-      : null}
   </div>
 }

@@ -218,7 +218,30 @@ function elementCarrying(tag: string, text: string): (content: string, element: 
   return (_content, element) => element?.tagName === tag && (element.textContent?.includes(text) ?? false)
 }
 
+/**
+ * Open one of the panel's views; only the selected view is mounted.
+ * @param name - the tab's accessible name.
+ */
+async function openView(name: 'Current key' | 'Member analysis' | 'Allowance & keys' | 'Local calls'): Promise<void> {
+  fireEvent.click(await screen.findByRole('tab', { name }))
+}
+
 describe('quota monitor usage panel', () => {
+  it('updates analysis from a recovered single-key reading when the opening snapshot contains a failure', async () => {
+    const credentialRef = 'DEEPSEEK_API_KEY'
+    const stale: QuotaAccount = { ...MANUAL_ACCOUNT, adapter: 'stepcode', mode: 'balance', status: 'unavailable', credentialRef, reason: 'account endpoint returned HTTP 500' }
+    const opening: QuotaSnapshot = { ...SNAPSHOT, providers: [{ ...SNAPSHOT.providers[0]!, adapter: 'stepcode', activeCredentialRef: credentialRef, accounts: [stale] }] }
+    let release!: (value: RemoteResult<QuotaAccount>) => void
+    const pending = new Promise<RemoteResult<QuotaAccount>>(resolve => { release = resolve })
+    render(<UsagePanel {...props(api({ readPendingAccounts: async () => ok(opening), getAccount: () => pending }))} />)
+    await screen.findByRole('region', { name: 'Active key' })
+    await act(async () => release(ok({ ...ACCOUNT, adapter: 'stepcode', credentialRef,
+      keyUsage: { days: 62, startDate: '2026-01-13', endDate: '2026-03-15', models: [], daily: [], points: [{ date: '2026-03-15', model: 'Recovered-model', totalTokens: 100, inputTokens: 100, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, calls: 1 }] },
+    })))
+    expect(await screen.findByRole('img', { name: 'Model usage share: 100' })).toBeTruthy()
+    expect(within(screen.getByRole('region', { name: 'Selected model detail' })).getByText('Recovered-model')).toBeTruthy()
+  })
+
   it('follows provider topology updates, reconciles selected keys and keeps history separate', async () => {
     let latest = SNAPSHOT
     let invalidate = () => {}
@@ -233,21 +256,23 @@ describe('quota monitor usage panel', () => {
     const getSnapshot = vi.fn(async () => ok(latest))
     const getUsage = vi.fn(async () => ok(USAGE))
     const { unmount } = render(<UsagePanel {...props(api({ getSnapshot, getAccount, getUsage }))} subscribeProviders={subscribeProviders} />)
-    expect(await screen.findByText('42.5 CNY')).toBeTruthy()
+    expect((await screen.findAllByText('42.5 CNY')).length).toBeGreaterThan(0)
     latest = { ...SNAPSHOT, providers: [{ ...SNAPSHOT.providers[0]!, id: 'added', name: 'Added', credentialRefs: ['ADDED_KEY'] }] }
     act(() => invalidate())
-    expect(await screen.findByRole('button', { name: 'Added', exact: true })).toBeTruthy()
+    expect(await screen.findByRole('option', { name: 'Added', exact: true })).toBeTruthy()
     await waitFor(() => expect(getAccount).toHaveBeenLastCalledWith({ provider: 'added', credentialRef: 'ADDED_KEY', refresh: false }))
-    expect(screen.queryByRole('button', { name: 'DeepSeek', exact: true })).toBeNull()
-    expect(await screen.findByText('17 CNY')).toBeTruthy()
+    expect(screen.queryByRole('option', { name: 'DeepSeek', exact: true })).toBeNull()
+    expect((await screen.findAllByText('17 CNY')).length).toBeGreaterThan(0)
     // The removed provider remains only in the historic comparison, visibly labelled.
+    await openView('Local calls')
     expect(await screen.findByText('Historical provider')).toBeTruthy()
     latest = { ...latest, providers: [{ ...latest.providers[0]!, name: 'Renamed', credentialRefs: ['REPLACED_KEY'] }] }
     act(() => invalidate())
-    expect(await screen.findByRole('button', { name: 'Renamed', exact: true })).toBeTruthy()
+    expect(await screen.findByRole('option', { name: 'Renamed', exact: true })).toBeTruthy()
     await waitFor(() => expect(getAccount).toHaveBeenLastCalledWith({ provider: 'added', credentialRef: 'REPLACED_KEY', refresh: false }))
     latest = { ...latest, providers: [] }
     act(() => invalidate())
+    await openView('Allowance & keys')
     expect(await screen.findByText('No provider is configured yet')).toBeTruthy()
     await waitFor(() => expect(screen.queryByText('17 CNY')).toBeNull())
     await waitFor(() => expect(getUsage).toHaveBeenCalledWith({ refresh: false }))
@@ -262,11 +287,12 @@ describe('quota monitor usage panel', () => {
     expect(await screen.findByText('42.5 CNY')).toBeTruthy()
     // Source and update time share one paragraph, so the match is on its text.
     expect(await screen.findByText(elementCarrying('P', 'Source: deepseek-balance'))).toBeTruthy()
+    expect(screen.getByText('25% used')).toBeTruthy()
+    await openView('Local calls')
     // Two rows carry 1.25 CNY: today's total and the selected account's own spend.
     expect(screen.getAllByText('1.25 CNY').length).toBeGreaterThan(0)
     // The totals line and the budget lines each carry siblings in one element.
     expect(await screen.findByText(elementCarrying('P', "Today's cache hit rate 64.5%"))).toBeTruthy()
-    expect(screen.getByText('25% used')).toBeTruthy()
     expect(await screen.findByText(elementCarrying('SPAN', 'On track · 12.5%'))).toBeTruthy()
     expect(screen.getByText(elementCarrying('SPAN', 'Cost incomplete'))).toBeTruthy()
   })
@@ -287,6 +313,7 @@ describe('quota monitor usage panel', () => {
       }],
     }
     render(<UsagePanel {...props(api({ getUsage: () => Promise.resolve(ok(usage)) }))} />)
+    await openView('Local calls')
     const heading = await screen.findByText('Usage by model')
     const section = within(heading.closest('section') as HTMLElement)
     const model = await section.findByRole('rowheader', { name: 'deepseek-chat' })
@@ -335,6 +362,7 @@ describe('quota monitor usage panel', () => {
       return Promise.resolve(ok(folded ? fresh : USAGE))
     })
     const { container } = render(<UsagePanel {...props(api({ getUsage }))} />)
+    await openView('Local calls')
     const section = within((await screen.findByText('Usage by provider')).closest('section') as HTMLElement)
     await section.findByText('3.6k')
     getUsage.mockClear()
@@ -366,21 +394,24 @@ describe('quota monitor usage panel', () => {
         : Promise.resolve(ok({ ...ACCOUNT, id: 'pro', name: 'Pro', remaining: 88 })),
     }))} />)
     await waitFor(() => { expect(getUsage).toHaveBeenCalledWith({ provider: 'deepseek', refresh: false }) })
-    fireEvent.click(await screen.findByRole('button', { name: 'Pro' }))
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Provider' }), { target: { value: 'pro' } })
+    expect(await screen.findByText('88 CNY')).toBeTruthy()
+    await openView('Local calls')
     await screen.findByText('pro-session')
-    expect(screen.getByText('88 CNY')).toBeTruthy()
     await act(async () => {
       releaseUsage?.(ok(USAGE))
       releaseAccount?.(ok(ACCOUNT))
     })
     await waitFor(() => { expect(screen.getByText('pro-session')).toBeTruthy() })
     expect(screen.queryByText('session-a')).toBeNull()
+    await openView('Allowance & keys')
+    expect(await screen.findByText('88 CNY')).toBeTruthy()
     expect(screen.queryByText('42.5 CNY')).toBeNull()
   })
 
   it('lists the sessions that spent the tokens, by id and route', async () => {
     render(<UsagePanel {...props(api())} />)
-
+    await openView('Local calls')
     expect(await screen.findByText('session-a')).toBeTruthy()
     expect(screen.getByText('deepseek · deepseek-chat')).toBeTruthy()
   })
@@ -435,6 +466,7 @@ describe('quota monitor usage panel', () => {
     }
     render(<UsagePanel {...props(api({ getUsage: () => Promise.resolve(ok(usage)) }))} />)
 
+    await openView('Local calls')
     const heading = await screen.findByText('Usage by provider')
     const section = heading.closest('section') as HTMLElement
     expect(section).toBeTruthy()
@@ -505,13 +537,52 @@ describe('quota monitor usage panel', () => {
     }))} />)
 
     // The selection the account card starts on scopes the statistics.
+    await openView('Local calls')
     expect(await screen.findByText('DeepSeek only')).toBeTruthy()
     expect(getUsage).toHaveBeenCalledWith({ refresh: false, provider: 'deepseek' })
 
-    // The card's own selector re-scopes them, so both halves describe one route.
-    fireEvent.click(await screen.findByRole('button', { name: 'Pro' }))
+    // The global provider selection re-scopes both the account and statistics.
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Provider' }), { target: { value: 'pro' } })
     expect(await screen.findByText('Pro only')).toBeTruthy()
     await waitFor(() => { expect(getUsage).toHaveBeenCalledWith({ refresh: false, provider: 'pro' }) })
+  })
+
+  it('shows key analysis only for a provider reporting per-key history, and members only for several keys', async () => {
+    const history = { days: 62, startDate: '2026-01-13', endDate: '2026-03-15', models: [], daily: [], points: [{ date: '2026-03-15', model: 'Team-model', totalTokens: 100, inputTokens: 100, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, calls: 1 }] }
+    const reading = (id: string, credentialRef: string): QuotaAccount => ({ ...ACCOUNT, id, name: id, adapter: 'stepcode', credentialRef, keyUsage: history })
+    const stepcode = (id: string, keys: string[]): QuotaSnapshot['providers'][number] => ({
+      id, name: id, mode: 'balance', adapter: 'stepcode', status: 'ok', credentialRefs: keys, activeCredentialRef: keys[0], accounts: keys.map(key => reading(id, key)),
+    })
+    const mixed: QuotaSnapshot = { ...SNAPSHOT, providers: [...SNAPSHOT.providers, stepcode('team', ['ALICE_KEY', 'BOB_KEY']), stepcode('solo', ['SOLO_KEY'])] }
+    render(<UsagePanel {...props(api({
+      getSnapshot: () => Promise.resolve(ok(mixed)),
+      readPendingAccounts: () => Promise.resolve(ok(mixed)),
+      refreshAccounts: () => Promise.resolve(ok(mixed)),
+      getAccount: async request => ok(request.provider === 'deepseek' ? ACCOUNT : reading(request.provider, request.credentialRef ?? '')),
+    }))} />)
+    const tabs = () => screen.getAllByRole('tab').map(tab => tab.textContent)
+    const pick = (id: string) => fireEvent.change(screen.getByRole('combobox', { name: 'Provider' }), { target: { value: id } })
+
+    // The route with the most keys opens on its key analysis; members are one tab away.
+    expect(await screen.findByRole('region', { name: 'Active key' })).toBeTruthy()
+    expect(tabs()).toEqual(['Current key', 'Member analysis', 'Allowance & keys', 'Local calls'])
+
+    // One key has no members to compare.
+    pick('solo')
+    await waitFor(() => expect(tabs()).toEqual(['Current key', 'Allowance & keys', 'Local calls']))
+    expect(screen.getByRole('region', { name: 'Active key' })).toBeTruthy()
+
+    // A provider without per-key history shows only its allowance and the local calls.
+    pick('deepseek')
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Active key' })).toBeNull())
+    expect(tabs()).toEqual(['Allowance & keys', 'Local calls'])
+    expect(screen.getByRole('tab', { name: 'Allowance & keys' }).getAttribute('aria-selected')).toBe('true')
+
+    pick('team')
+    expect(await screen.findByRole('region', { name: 'Active key' })).toBeTruthy()
+    await openView('Member analysis')
+    expect(await screen.findByRole('region', { name: 'Member AI usage' })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Active key' })).toBeNull()
   })
 
   it('leaves a route out of a range it did not spend in', async () => {
@@ -539,6 +610,7 @@ describe('quota monitor usage panel', () => {
     }
     render(<UsagePanel {...props(api({ getUsage: () => Promise.resolve(ok(usage)) }))} />)
 
+    await openView('Local calls')
     const heading = await screen.findByText('Usage by provider')
     const rows = within(heading.closest('section') as HTMLElement)
 
@@ -595,6 +667,7 @@ describe('quota monitor usage panel', () => {
   it('opens one day\'s breakdown when its calendar cell is selected', async () => {
     render(<UsagePanel {...props(api())} />)
 
+    await openView('Local calls')
     expect(await screen.findByText('Select a day in the calendar above to see its breakdown')).toBeTruthy()
     fireEvent.click(await screen.findByRole('button', { name: /^2026-03-15:/u }))
 
@@ -605,6 +678,7 @@ describe('quota monitor usage panel', () => {
   it('moves the calendar by one month from either arrow', async () => {
     render(<UsagePanel {...props(api())} />)
 
+    await openView('Local calls')
     await screen.findByText('2026-03')
     fireEvent.click(screen.getByRole('button', { name: 'Previous month' }))
     expect(await screen.findByText('2026-02')).toBeTruthy()
@@ -638,6 +712,7 @@ describe('quota monitor usage panel', () => {
       .mockImplementation(() => gate.then(() => ok(USAGE)))
     const { container } = render(<UsagePanel {...props(api({ getUsage }))} />)
 
+    await openView('Local calls')
     await screen.findByText('session-a')
     fireEvent.click(headerRefresh(container))
 
@@ -657,6 +732,7 @@ describe('quota monitor usage panel', () => {
     })))
     render(<UsagePanel {...props(api({ resetStats }))} />)
 
+    await openView('Local calls')
     fireEvent.click(await screen.findByRole('button', { name: 'Reset session stats' }))
     await waitFor(() => { expect(resetStats).toHaveBeenCalledWith({}) })
   })
@@ -668,6 +744,7 @@ describe('quota monitor usage panel', () => {
     vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }))
     render(<UsagePanel {...props(api({ exportUsage }))} />)
 
+    await openView('Local calls')
     fireEvent.click(await screen.findByRole('button', { name: 'Daily CSV' }))
 
     await waitFor(() => { expect(exportUsage).toHaveBeenCalledWith({ kind: 'daily-csv' }) })
@@ -680,6 +757,7 @@ describe('quota monitor usage panel', () => {
   it('reports a failed export instead of saving an empty file', async () => {
     render(<UsagePanel {...props(api({ exportUsage: () => Promise.resolve(failed<QuotaExportDocument>()) }))} />)
 
+    await openView('Local calls')
     fireEvent.click(await screen.findByRole('button', { name: 'Sessions CSV' }))
 
     expect(await screen.findByText('Export failed')).toBeTruthy()
@@ -691,6 +769,7 @@ describe('quota monitor usage panel', () => {
       .mockResolvedValue(failed<QuotaUsageReport>())
     const { container } = render(<UsagePanel {...props(api({ getUsage }))} />)
 
+    await openView('Local calls')
     await screen.findByText('session-a')
     fireEvent.click(headerRefresh(container))
 
@@ -704,6 +783,7 @@ describe('quota monitor usage panel', () => {
   it('offers only the three export kinds the Host can build', async () => {
     render(<UsagePanel {...props(api())} />)
 
+    await openView('Local calls')
     expect(await screen.findByRole('button', { name: 'Daily CSV' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sessions CSV' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Full report JSON' })).toBeTruthy()
@@ -735,7 +815,8 @@ describe('quota monitor usage panel', () => {
     // the keys of one account rather than as two accounts.
     expect(chipA.closest('fieldset')).toBe(chipB.closest('fieldset'))
     expect(within(chipA.closest('fieldset')!).getByText('Provider keys (2)')).toBeTruthy()
-    expect(screen.getAllByRole('button', { name: 'DeepSeek' })).toHaveLength(1)
+    expect(screen.getAllByRole('combobox', { name: 'Provider' })).toHaveLength(1)
+    expect(screen.queryByRole('button', {name:'DeepSeek',exact:true})).toBeNull()
 
     fireEvent.click(chipB)
     await waitFor(() => {
@@ -783,4 +864,16 @@ describe('quota monitor usage panel', () => {
     // The round's snapshot replaces the selector's figures with fresh ones.
     expect(await screen.findByText('3 CNY')).toBeTruthy()
   })
+})
+
+
+it('retains active-key charts when a known Stepcode provider has only failed reads', async () => {
+  const failed: QuotaAccount = { ...MANUAL_ACCOUNT, id:'stepcode-team', name:'Team', mode:'balance', adapter:'stepcode', status:'unavailable', credentialRef:'member', reason:'account endpoint returned HTTP 500' }
+  const snapshot: QuotaSnapshot = { ...SNAPSHOT, providers:[...SNAPSHOT.providers, { id:'stepcode-team', name:'Team', mode:'balance', adapter:'stepcode', status:'unavailable', credentialRefs:['member'], activeCredentialRef:'member', keyNames:{member:'Alice'}, accounts:[failed] }] }
+  render(<UsagePanel {...props(api({readPendingAccounts:()=>Promise.resolve(ok(snapshot)),getAccount:()=>Promise.resolve(ok(failed))}))} />)
+  const active = await screen.findByRole('region', {name:'Active key'})
+  expect(within(active).getByText('Team · Alice')).toBeTruthy()
+  expect(within(active).getByText('account endpoint returned HTTP 500')).toBeTruthy()
+  expect(within(active).getByRole('img', {name:'Token composition: No available detail'})).toBeTruthy()
+  expect(within(active).queryByText('No usage in this period')).toBeNull()
 })

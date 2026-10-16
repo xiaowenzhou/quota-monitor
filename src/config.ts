@@ -189,6 +189,19 @@ export interface QuotaRoutingConfig {
   jevModel: string
 }
 
+/** How much per-key usage history a provider's own desk API is asked for. */
+export interface QuotaUsageConfig {
+  /**
+   * Days of per-model and per-day token history, 1–366 (default 62).
+   *
+   * Only providers that publish a per-key usage endpoint beside their account
+   * one read this; StepCode/AgentRouter does. The account endpoint's own
+   * billing-period totals are unaffected — they cover whatever period that
+   * endpoint meters, not this window.
+   */
+  days: number
+}
+
 /** The plugin's validated configuration. */
 export interface QuotaMonitorConfig {
   /** How often accounts and usage are re-read without an operator asking. */
@@ -202,6 +215,8 @@ export interface QuotaMonitorConfig {
   /** Spend ceilings measured against those derived amounts. */
   budgets: QuotaBudgetConfig
   routing: QuotaRoutingConfig
+  /** Per-key usage history windows. */
+  usage: QuotaUsageConfig
   /** Provider route key → monitor override. */
   monitors: Record<string, QuotaMonitorEntry>
 }
@@ -219,6 +234,7 @@ export interface QuotaMonitorConfigInput {
   pricing?: Partial<QuotaPricingConfig>
   budgets?: Partial<QuotaBudgetConfig>
   routing?: Partial<QuotaRoutingConfig>
+  usage?: Partial<QuotaUsageConfig>
   monitors?: Record<string, QuotaMonitorEntry>
 }
 
@@ -358,6 +374,9 @@ export const Config: zs<QuotaMonitorConfigInput, QuotaMonitorConfig> = zs.object
     jevTimeoutMs: zs.natural().min(100).max(30_000).default(3_000),
     jevMinConfidence: zs.number().min(0).max(1).default(0.6),
     jevModel: zs.string().default('typesafe/jev-1.13'),
+  }),
+  usage: zs.object({
+    days: zs.natural().min(1).max(366).default(62),
   }),
   monitors: zs.dict(monitorEntry),
 })

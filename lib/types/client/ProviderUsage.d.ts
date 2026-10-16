@@ -21,8 +21,6 @@ export interface ProviderUsageProps {
     names: Readonly<Record<string, string>>;
     /** The route the panel's statistics follow. */
     selected: string | undefined;
-    /** Select a route, which re-scopes the statistics above this section. */
-    onSelect: (id: string) => void;
     /** All-time tokens across every route, the denominator of the all-time share. */
     allTimeTokens: number;
     /** Tokens folded for today, the denominator of the today share. */
@@ -30,5 +28,5 @@ export interface ProviderUsageProps {
     /** Tokens folded for this month, the denominator of the month share. */
     monthTokens: number;
 }
-export declare function ProviderUsage({ t, providers, names, selected, onSelect, allTimeTokens, todayTokens, monthTokens, }: ProviderUsageProps): import("react").JSX.Element;
+export declare function ProviderUsage({ t, providers, names, selected, allTimeTokens, todayTokens, monthTokens, }: ProviderUsageProps): import("react").JSX.Element;
 //# sourceMappingURL=ProviderUsage.d.ts.map
